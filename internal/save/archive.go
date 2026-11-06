@@ -165,7 +165,7 @@ func unpackLayer(ctx context.Context, src LayerSource, dst string, onBytes byteH
 		defer gz.Close()
 		reader = gz
 	case compressionZstd:
-		return "", 0, fmt.Errorf("该镜像层使用 zstd 压缩，docker 格式暂不支持；请改用 -format oci")
+		return "", 0, fmt.Errorf("该镜像层使用 zstd 压缩，docker-legacy 格式无法解压；请改用 -format docker 或 -format oci")
 	}
 
 	out, err := os.Create(dst)

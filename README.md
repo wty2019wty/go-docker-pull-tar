@@ -24,7 +24,7 @@
 - **代理**：支持 `http://`、`https://`、`socks5://`、`socks5h://`，未指定时自动读取系统代理环境变量。
 - **指定架构**：支持多平台索引，`-platform linux/arm64`、`-arch arm64`、`-os linux -variant v7` 均可；`-list-platforms` 查看全部平台。
 - **镜像站**：`-registry docker.1ms.run` 可将请求切换到镜像站，同时保持原镜像名用于打标签。
-- **完整性校验**：每个 Blob 做 SHA256 校验，docker 格式额外校验配置中的 `diff_ids`。
+- **完整性校验**：每个 Blob 做 SHA256 校验；`docker-legacy` 打包（解压）时校验配置中的 `diff_ids`，`docker` 格式导入时由 `docker load` 校验。
 - **两种输出**：
   - `docker`（默认）：与 Docker 27+ 官方 `docker save` 一致的混合格式，`docker load -i xxx.tar` 直接导入；
   - `oci`：标准 OCI image layout 目录或 `.tar`；
@@ -117,11 +117,11 @@ docker load -i ./library_nginx_latest_linux_amd64.tar
 | `-password-stdin` | 从标准输入读取密码 | `false` |
 | `-tag-name` | 写入 tar 包的镜像名 | 自动生成 |
 | `-registry, -r` | 镜像站地址，如 `docker.1ms.run` | 空 |
-| `-proxy` | 代理地址，支持 http/https/socks5 | 环境变量 |
+| `-proxy` | 代理地址，支持 http/https/socks5/socks5h，`none` 表示禁用代理 | 环境变量 |
 | `-dns` | 自定义 DNS 服务器，逗号分隔 | 自动检测（见下文 DNS 章节） |
 | `-insecure` | 跳过 TLS 证书校验 | `false` |
 | `-plain-http` | 使用 HTTP 访问仓库 | `false` |
-| `-workers, -w` | 并发下载连接数 | `8` |
+| `-workers, -w` | 并发下载连接数（最大 128） | `8` |
 | `-chunk-size` | 大层分片大小，`0` 表示禁用分片 | `8MiB` |
 | `-min-chunk-size` | 启用分片的最小层大小 | `16MiB` |
 | `-retries` | 单个请求最大重试次数 | `8` |
@@ -134,6 +134,7 @@ docker load -i ./library_nginx_latest_linux_amd64.tar
 | `-version, -V` | 显示版本 | - |
 
 > 提示：参数需要写在镜像名之前，例如 `gdockerpull -a arm64 nginx:latest`。
+> 也支持 `gdockerpull pull [选项] <镜像>` 的子命令写法；未指定镜像名且处于交互式终端时，会提示输入镜像名。
 
 ## 平台与架构
 
@@ -231,6 +232,7 @@ gdockerpull -i nginx:latest -r docker.1ms.run
 ```
 
 镜像站只影响实际请求地址，`docker load` 后的镜像名仍然是 `nginx:latest`，不会带上镜像站域名。
+传入 `http://` 开头的地址时会自动启用 HTTP 访问（等同 `-plain-http`）。
 
 ## 输出格式
 
@@ -342,7 +344,7 @@ gdockerpull -i ubuntu:24.04 -keep-cache
   `application/vnd.oci.image.index.v1+json`。
 - 多平台：从 index 中按 `os/architecture/variant` 选择子清单，并校验子清单摘要。
 - Blob：`GET /v2/<name>/blobs/<digest>`，使用 `Range` 分片；跨域重定向时由 Go 自动剥离 `Authorization`。
-- 校验：下载完成后对整个 Blob 计算 SHA256；docker 打包时再校验 `rootfs.diff_ids`。
+- 校验：下载完成后对整个 Blob 计算 SHA256；`docker-legacy` 打包（解压）时再校验 `rootfs.diff_ids`，`docker` 格式导入时由 `docker load` 校验。
 - 打包：默认按 Docker 27+ `docker save` 的混合格式生成 `blobs/sha256/*` + `manifest.json` + `oci-layout` + `index.json`；`docker-legacy` 生成旧版未压缩 `layer.tar`；OCI 格式生成标准 `oci-layout`、`index.json` 与 `blobs/sha256/*`。
 
 ## 项目结构
@@ -350,6 +352,7 @@ gdockerpull -i ubuntu:24.04 -keep-cache
 ```text
 go-docker-pull-tar/
 ├── main.go                     # CLI、流程编排
+├── main_test.go                # CLI 与流程测试
 ├── internal/
 │   ├── reference/              # 镜像引用解析
 │   ├── registry/               # Registry API V2 客户端、认证、平台选择
@@ -360,6 +363,7 @@ go-docker-pull-tar/
 ├── .github/workflows/          # CI 测试与 Release 自动发布
 ├── .goreleaser.yaml            # GoReleaser 多平台构建与打包配置
 ├── go.mod
+├── LICENSE
 └── README.md
 ```
 
