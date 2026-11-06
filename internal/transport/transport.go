@@ -60,6 +60,15 @@ func New(opts Options) (*http.Client, error) {
 		opts.Log("%s: %s", dnsSource, strings.Join(dnsServers, ", "))
 	}
 
+	tlsCfg := &tls.Config{
+		MinVersion:         tls.VersionTLS12,
+		InsecureSkipVerify: opts.Insecure, //nolint:gosec // 由用户显式指定
+	}
+	if rootCAs, note := loadRootCAs(); rootCAs != nil {
+		tlsCfg.RootCAs = rootCAs
+		opts.Log("%s", note)
+	}
+
 	tr := &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
 		DialContext:           dialer.DialContext,
@@ -72,10 +81,7 @@ func New(opts Options) (*http.Client, error) {
 		ExpectContinueTimeout: 1 * time.Second,
 		ResponseHeaderTimeout: 60 * time.Second,
 		DisableCompression:    true,
-		TLSClientConfig: &tls.Config{
-			MinVersion:         tls.VersionTLS12,
-			InsecureSkipVerify: opts.Insecure, //nolint:gosec // 由用户显式指定
-		},
+		TLSClientConfig:       tlsCfg,
 	}
 
 	if strings.TrimSpace(opts.Proxy) != "" {
