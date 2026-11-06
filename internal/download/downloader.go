@@ -301,7 +301,7 @@ func (d *Downloader) Download(ctx context.Context, blobs []Blob) error {
 
 		lastErr = fmt.Errorf("%d 个层校验失败", len(bad))
 		for _, st := range bad {
-			d.opts.UI.Printf("⚠️  层 %s 校验失败，重新下载", shortDigest(st.blob.Digest))
+			d.opts.UI.Printf("警告: 层 %s 校验失败，重新下载", shortDigest(st.blob.Digest))
 			d.resetBlob(st)
 		}
 	}
@@ -392,6 +392,11 @@ func (d *Downloader) plan(ctx context.Context) error {
 			if size, ok := partComplete(p); ok {
 				doneBytes += size
 				doneParts++
+				continue
+			}
+			// 未完成分片中已写入的字节同样计入完成量，保证续传记账精确。
+			if fi, err := os.Stat(p.path); err == nil && fi.Mode().IsRegular() {
+				doneBytes += fi.Size()
 			}
 		}
 		d.opts.Progress.SetLayerPlan(st.progressIdx, len(st.parts), doneParts, doneBytes)
@@ -669,6 +674,13 @@ func (d *Downloader) tryPart(ctx context.Context, t task) error {
 	if err != nil {
 		return err
 	}
+	if offset > 0 {
+		// 断点续传必须定位到已有数据末尾，否则会从文件头覆盖写。
+		if _, err := f.Seek(offset, io.SeekStart); err != nil {
+			f.Close()
+			return err
+		}
+	}
 
 	buf := make([]byte, 128<<10)
 	for {
@@ -679,7 +691,7 @@ func (d *Downloader) tryPart(ctx context.Context, t task) error {
 				f.Close()
 				return err
 			}
-			d.opts.Progress.Add(t.blob.progressIdx, int64(n))
+			d.opts.Progress.AddDownloaded(t.blob.progressIdx, int64(n))
 		}
 		if readErr != nil {
 			if readErr == io.EOF {

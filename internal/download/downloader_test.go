@@ -160,6 +160,81 @@ func TestDownloadChunkedAndResume(t *testing.T) {
 	}
 }
 
+// TestDownloadResumePartialPart 预置一个只下载了一部分的分片文件，
+// 验证续传从断点继续写入而不是从文件头覆盖写（回归测试）。
+func TestDownloadResumePartialPart(t *testing.T) {
+	payload := make([]byte, 5000)
+	for i := range payload {
+		payload[i] = byte(i * 17 % 253)
+	}
+	sum := sha256.Sum256(payload)
+	digest := "sha256:" + hex.EncodeToString(sum[:])
+
+	srv, rec := newTestRegistry(t, payload)
+	host := strings.TrimPrefix(srv.URL, "http://")
+	client := registry.New(registry.Options{
+		Registry:   host,
+		Repository: "test/repo",
+		HTTPClient: srv.Client(),
+		PlainHTTP:  true,
+		UserAgent:  "test",
+	})
+
+	cacheDir := t.TempDir()
+	u := ui.New(true, false)
+	progress := ui.NewProgress(u)
+
+	d, err := New(Options{
+		Client:         client,
+		HTTPClient:     srv.Client(),
+		CacheDir:       cacheDir,
+		ManifestDigest: "sha256:" + strings.Repeat("c", 64),
+		Platform:       "linux/amd64",
+		Workers:        2,
+		ChunkSize:      1024,
+		MinChunkSize:   1024,
+		Retries:        2,
+		Progress:       progress,
+		UI:             u,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 预置第一个分片的前 400 字节，模拟下载中断后的残留数据。
+	h := strings.TrimPrefix(digest, "sha256:")
+	partsDir := filepath.Join(cacheDir, "parts", h)
+	if err := os.MkdirAll(partsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(partsDir, "0-1023"), payload[:400], 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := d.Download(context.Background(), []Blob{{Digest: digest, Size: int64(len(payload))}}); err != nil {
+		t.Fatalf("Download() error = %v", err)
+	}
+
+	obj, err := ObjectPath(cacheDir, digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(obj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(payload) {
+		t.Fatal("断点续传后下载内容不一致")
+	}
+
+	if n := rec.get("bytes=400-1023"); n != 1 {
+		t.Fatalf("续传请求 bytes=400-1023 次数 = %d，期望 1", n)
+	}
+	if n := rec.get("bytes=0-1023"); n != 0 {
+		t.Fatalf("续传分片被整体重新请求 %d 次", n)
+	}
+}
+
 func TestDownloadSingleStream(t *testing.T) {
 	payload := make([]byte, 2048)
 	for i := range payload {

@@ -145,23 +145,23 @@ func realMain() int {
 
 	chunkSize, err := parseSize(chunkSizeStr)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "❌ 无效的 -chunk-size: %v\n", err)
+		fmt.Fprintf(os.Stderr, "错误: 无效的 -chunk-size: %v\n", err)
 		return 2
 	}
 	minChunk, err := parseSize(minChunkSizeStr)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "❌ 无效的 -min-chunk-size: %v\n", err)
+		fmt.Fprintf(os.Stderr, "错误: 无效的 -min-chunk-size: %v\n", err)
 		return 2
 	}
 	opts.chunkSize = chunkSize
 	opts.minChunkSize = minChunk
 	opts.format = strings.ToLower(strings.TrimSpace(opts.format))
 	if opts.format != "docker" && opts.format != "docker-legacy" && opts.format != "oci" {
-		fmt.Fprintf(os.Stderr, "❌ 无效的 -format: %q（支持 docker、docker-legacy、oci）\n", opts.format)
+		fmt.Fprintf(os.Stderr, "错误: 无效的 -format: %q（支持 docker、docker-legacy、oci）\n", opts.format)
 		return 2
 	}
 	if opts.workers <= 0 {
-		fmt.Fprintln(os.Stderr, "❌ -workers 必须大于 0")
+		fmt.Fprintln(os.Stderr, "错误: -workers 必须大于 0")
 		return 2
 	}
 	if opts.workers > 128 {
@@ -175,12 +175,12 @@ func realMain() int {
 
 	if opts.image == "" {
 		if !stdinIsTerminal() {
-			fmt.Fprintln(os.Stderr, "❌ 请通过 -i/--image 指定镜像名称")
+			fmt.Fprintln(os.Stderr, "错误: 请通过 -i/--image 指定镜像名称")
 			return 2
 		}
 		line, ok := promptLine("请输入镜像名称（例如 nginx:latest）: ")
 		if !ok || strings.TrimSpace(line) == "" {
-			u.Errorf("❌ 镜像名称不能为空")
+			u.Errorf("错误: 镜像名称不能为空")
 			return 2
 		}
 		opts.image = strings.TrimSpace(line)
@@ -192,10 +192,10 @@ func realMain() int {
 	listed, err := run(ctx, opts, u)
 	if err != nil {
 		if ctx.Err() != nil {
-			u.Errorf("\n⚠️  已中断，已下载的分片保留在缓存目录中；重新运行相同命令即可断点续传。")
+			u.Errorf("\n警告: 已中断，已下载的分片保留在缓存目录中；重新运行相同命令即可断点续传。")
 			return 130
 		}
-		u.Errorf("❌ %v", err)
+		u.Errorf("错误: %v", err)
 		return 1
 	}
 	if listed {
@@ -342,11 +342,11 @@ func run(ctx context.Context, opts cliOptions, u *ui.UI) (bool, error) {
 	}
 
 	if platformExplicit && !wasIndex && !registry.Match(want, platform) {
-		u.Printf("⚠️  该镜像是单平台镜像，实际平台为 %s，与指定平台 %s 不同，仍继续下载。",
+		u.Printf("警告: 该镜像是单平台镜像，实际平台为 %s，与指定平台 %s 不同，仍继续下载。",
 			platform.String(), want.String())
 	}
 	if platform.Architecture != "" && imageConfig.Architecture != "" && !strings.EqualFold(platform.Architecture, imageConfig.Architecture) {
-		u.Printf("⚠️  配置中的架构为 %s，与清单平台 %s 不一致。", imageConfig.Architecture, platform.String())
+		u.Printf("警告: 配置中的架构为 %s，与清单平台 %s 不一致。", imageConfig.Architecture, platform.String())
 	}
 
 	base := safeBaseName(ref, platform)
@@ -359,13 +359,13 @@ func run(ctx context.Context, opts cliOptions, u *ui.UI) (bool, error) {
 		cacheDir = defaultCacheDir(outputPath)
 	}
 
-	u.Infof("🚀 go-docker-pull-tar %s", Version)
-	u.Infof("📦 镜像: %s", ref.Name())
-	u.Infof("📦 仓库: %s/%s", ref.Registry, ref.Repository)
-	u.Infof("📦 平台: %s", platform.String())
-	u.Infof("📦 层数: %d，压缩大小: %s", len(manifest.Layers), ui.FormatBytes(totalLayerSize(manifest.Layers)))
-	u.Infof("📁 输出: %s", outputPath)
-	u.Infof("🗂️  缓存: %s", cacheDir)
+	u.Infof("go-docker-pull-tar %s", Version)
+	u.Infof("镜像: %s", ref.Name())
+	u.Infof("仓库: %s/%s", ref.Registry, ref.Repository)
+	u.Infof("平台: %s", platform.String())
+	u.Infof("层数: %d，压缩大小: %s", len(manifest.Layers), ui.FormatBytes(totalLayerSize(manifest.Layers)))
+	u.Infof("输出: %s", outputPath)
+	u.Infof("缓存: %s", cacheDir)
 
 	err = pullAndSave(ctx, opts, u, ref, rc, httpClient, manifest, manifestBytes, mediaType, manifestDigest, configBytes, imageConfig, platform, outputPath, cacheDir)
 	return false, err
@@ -456,7 +456,7 @@ func pullAndSave(
 	if len(imageConfig.RootFS.DiffIDs) != len(manifest.Layers) {
 		msg := fmt.Sprintf("配置中的 diffID 数量 (%d) 与层数 (%d) 不一致", len(imageConfig.RootFS.DiffIDs), len(manifest.Layers))
 		if opts.format == "oci" {
-			u.Printf("⚠️  %s，OCI 格式仍会原样保留层，但不保证可被其他工具导入。", msg)
+			u.Printf("警告: %s，OCI 格式仍会原样保留层，但不保证可被其他工具导入。", msg)
 			for i := range layerSources {
 				layerSources[i].DiffID = ""
 			}
@@ -470,9 +470,9 @@ func pullAndSave(
 		refName = ref.Name()
 	}
 
-	u.Infof("✅ 下载完成，开始生成 %s 格式...", opts.format)
+	u.Infof("下载完成，开始生成 %s 格式...", opts.format)
 	if opts.format == "docker" && hasZstdLayer(manifest.Layers) {
-		u.Printf("⚠️  该镜像包含 zstd 压缩层；新版 docker 格式会原样保留压缩层，需要 Docker 27+ 才能导入。")
+		u.Printf("警告: 该镜像包含 zstd 压缩层；新版 docker 格式会原样保留压缩层，需要 Docker 27+ 才能导入。")
 		u.Printf("   旧版 Docker 请改用 -format oci，或使用 docker-legacy（会解压，但旧版 docker-legacy 不支持 zstd）。")
 	}
 	switch opts.format {
@@ -523,21 +523,21 @@ func pullAndSave(
 	if !opts.keepCache {
 		_ = os.RemoveAll(cacheDir)
 	} else {
-		u.Infof("🗂️  缓存已保留: %s", cacheDir)
+		u.Infof("缓存已保留: %s", cacheDir)
 	}
 
 	u.Printf("")
-	u.Printf("🎉 完成: %s (%s)", refName, platform.String())
-	u.Printf("📦 输出: %s", outputPath)
+	u.Printf("完成: %s (%s)", refName, platform.String())
+	u.Printf("输出: %s", outputPath)
 	if fi, err := os.Stat(outputPath); err == nil && !fi.IsDir() {
-		u.Printf("📦 大小: %s", ui.FormatBytes(fi.Size()))
+		u.Printf("大小: %s", ui.FormatBytes(fi.Size()))
 	}
 	if opts.format == "docker" || opts.format == "docker-legacy" {
-		u.Printf("💡 导入命令: docker load -i \"%s\"", outputPath)
+		u.Printf("导入命令: docker load -i \"%s\"", outputPath)
 	} else if strings.HasSuffix(strings.ToLower(outputPath), ".tar") {
-		u.Printf("💡 导入命令: skopeo copy oci-archive:\"%s\" docker-daemon:\"%s\"", outputPath, refName)
+		u.Printf("导入命令: skopeo copy oci-archive:\"%s\" docker-daemon:\"%s\"", outputPath, refName)
 	} else {
-		u.Printf("💡 导入命令: skopeo copy oci:\"%s\" docker-daemon:\"%s\"", outputPath, refName)
+		u.Printf("导入命令: skopeo copy oci:\"%s\" docker-daemon:\"%s\"", outputPath, refName)
 	}
 	return nil
 }
@@ -671,7 +671,7 @@ func resolvePlatform(opts cliOptions) (registry.Platform, bool, error) {
 }
 
 func printPlatforms(u *ui.UI, manifests []registry.Descriptor) {
-	u.Printf("📋 可用平台:")
+	u.Printf("可用平台:")
 	for _, d := range manifests {
 		if d.Platform == nil || !d.Platform.IsReal() {
 			continue

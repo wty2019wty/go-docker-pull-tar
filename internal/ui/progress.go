@@ -26,7 +26,8 @@ type Progress struct {
 	done    int64
 	started time.Time
 
-	lastDone int64
+	net      int64 // 本次运行从网络实际下载的字节数，不含缓存复用
+	lastNet  int64 // 上次渲染时的网络字节数，用于计算瞬时速度
 	lastTime time.Time
 	speed    float64
 
@@ -69,7 +70,8 @@ func (p *Progress) SetLayerTotal(idx int, total int64) {
 	}
 }
 
-// SetLayerPlan 设置某个层的分片计划。
+// SetLayerPlan 设置某个层的分片计划。doneBytes 包含本地缓存中已有的字节，
+// 这部分只计入完成量，不计入下载速度；分片全部就绪时直接标记该层完成。
 func (p *Progress) SetLayerPlan(idx, totalParts, doneParts int, doneBytes int64) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -81,9 +83,12 @@ func (p *Progress) SetLayerPlan(idx, totalParts, doneParts int, doneBytes int64)
 	l.DoneParts = doneParts
 	l.Done = doneBytes
 	p.recalcLocked()
+	if totalParts > 0 && doneParts >= totalParts {
+		p.markDoneLocked(l)
+	}
 }
 
-// Add 增加已下载字节数。
+// Add 以记账方式调整已下载字节数（正数补记缓存，负数回退），不计入下载速度。
 func (p *Progress) Add(idx int, n int64) {
 	if n == 0 {
 		return
@@ -97,14 +102,33 @@ func (p *Progress) Add(idx int, n int64) {
 	p.done += n
 }
 
-// PartDone 标记一个分片完成。
+// AddDownloaded 记录从网络实际下载的字节，同时计入完成量与下载速度。
+func (p *Progress) AddDownloaded(idx int, n int64) {
+	if n <= 0 {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if idx < 0 || idx >= len(p.layers) {
+		return
+	}
+	p.layers[idx].Done += n
+	p.done += n
+	p.net += n
+}
+
+// PartDone 标记一个分片完成；层的分片全部就绪时标记该层完成。
 func (p *Progress) PartDone(idx int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if idx < 0 || idx >= len(p.layers) {
 		return
 	}
-	p.layers[idx].DoneParts++
+	l := p.layers[idx]
+	l.DoneParts++
+	if l.TotalParts > 0 && l.DoneParts >= l.TotalParts {
+		p.markDoneLocked(l)
+	}
 }
 
 // ResetLayer 重置某个层的下载进度（用于校验失败后重试）。
@@ -131,7 +155,11 @@ func (p *Progress) MarkLayerDone(idx int) {
 	if idx < 0 || idx >= len(p.layers) {
 		return
 	}
-	l := p.layers[idx]
+	p.markDoneLocked(p.layers[idx])
+}
+
+// markDoneLocked 标记层完成，并把完成量补齐到总大小（调用方需持有锁）。
+func (p *Progress) markDoneLocked(l *progressLayer) {
 	if l.Total > 0 && l.Done < l.Total {
 		p.done += l.Total - l.Done
 		l.Done = l.Total
@@ -191,7 +219,8 @@ func (p *Progress) render(now time.Time) {
 	p.mu.Lock()
 	done := p.done
 	total := p.total
-	lastDone := p.lastDone
+	net := p.net
+	lastNet := p.lastNet
 	lastTime := p.lastTime
 	speed := p.speed
 	started := p.started
@@ -204,22 +233,23 @@ func (p *Progress) render(now time.Time) {
 	}
 	p.mu.Unlock()
 
+	// 速度只统计网络下载量，缓存复用与记账调整不计入。
 	dt := now.Sub(lastTime).Seconds()
-	if dt > 0.2 && done >= lastDone {
-		inst := float64(done-lastDone) / dt
+	if dt > 0.2 && net >= lastNet {
+		inst := float64(net-lastNet) / dt
 		if speed == 0 {
 			speed = inst
 		} else {
 			speed = speed*0.7 + inst*0.3
 		}
 	}
-	if speed <= 0 && done > 0 && !started.IsZero() {
+	if speed <= 0 && net > 0 && !started.IsZero() {
 		if elapsed := now.Sub(started).Seconds(); elapsed > 1 {
-			speed = float64(done) / elapsed
+			speed = float64(net) / elapsed
 		}
 	}
 	p.mu.Lock()
-	p.lastDone = done
+	p.lastNet = net
 	p.lastTime = now
 	p.speed = speed
 	p.mu.Unlock()
@@ -230,6 +260,10 @@ func (p *Progress) render(now time.Time) {
 		ratio = float64(done) / float64(total)
 		if ratio > 1 {
 			ratio = 1
+		}
+		// 显示上不超过总量，避免记账瞬时偏差造成“超额”观感。
+		if done > total {
+			done = total
 		}
 	}
 	filled := int(ratio * width)
