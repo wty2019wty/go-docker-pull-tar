@@ -46,6 +46,7 @@ type cliOptions struct {
 	tagName        string
 	registryMirror string
 	proxy          string
+	dns            string
 	insecure       bool
 	plainHTTP      bool
 	workers        int
@@ -87,6 +88,7 @@ func realMain() int {
 	fs.StringVar(&opts.registryMirror, "registry", "", "镜像站地址，例如 docker.1ms.run")
 	fs.StringVar(&opts.registryMirror, "r", "", "镜像站地址（-registry 的简写）")
 	fs.StringVar(&opts.proxy, "proxy", "", "代理地址：http://、https://、socks5://")
+	fs.StringVar(&opts.dns, "dns", "", "自定义 DNS 服务器，逗号分隔（如 223.5.5.5,8.8.8.8），默认自动检测")
 	fs.BoolVar(&opts.insecure, "insecure", false, "跳过 TLS 证书校验")
 	fs.BoolVar(&opts.plainHTTP, "plain-http", false, "使用 HTTP 访问仓库（本地仓库调试用）")
 	fs.IntVar(&opts.workers, "workers", 8, "并发下载连接数")
@@ -119,6 +121,7 @@ func realMain() int {
   gdockerpull -i harbor.example.com/team/app:v1 -u admin -p secret
   gdockerpull -i nginx:latest -registry docker.1ms.run -proxy socks5://127.0.0.1:1080
   gdockerpull -i ghcr.io/owner/repo:tag -platform linux/amd64 -workers 16
+  gdockerpull -i nginx:latest -dns 223.5.5.5,8.8.8.8
   gdockerpull -i nginx:latest -format oci -o ./oci-out
 
 选项:
@@ -225,7 +228,9 @@ func run(ctx context.Context, opts cliOptions, u *ui.UI) (bool, error) {
 
 	httpClient, err := transport.New(transport.Options{
 		Proxy:    opts.proxy,
+		DNS:      opts.dns,
 		Insecure: opts.insecure,
+		Log:      u.Infof,
 		Verbose:  u.Verbosef,
 	})
 	if err != nil {

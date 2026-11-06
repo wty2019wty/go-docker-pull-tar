@@ -25,6 +25,11 @@ type Options struct {
 	Insecure bool
 	// MaxConnsPerHost 控制单主机最大连接数。
 	MaxConnsPerHost int
+	// DNS 指定自定义 DNS 服务器（逗号分隔，如 223.5.5.5,8.8.8.8），留空则自动检测。
+	// 在缺少 /etc/resolv.conf 的环境（如 Android Termux）会自动回退公共 DNS。
+	DNS string
+	// Log 输出重要提示日志。
+	Log func(format string, args ...interface{})
 	// Verbose 输出调试日志。
 	Verbose func(format string, args ...interface{})
 }
@@ -37,10 +42,22 @@ func New(opts Options) (*http.Client, error) {
 	if opts.Verbose == nil {
 		opts.Verbose = func(string, ...interface{}) {}
 	}
+	if opts.Log == nil {
+		opts.Log = func(string, ...interface{}) {}
+	}
 
 	dialer := &net.Dialer{
 		Timeout:   30 * time.Second,
 		KeepAlive: 30 * time.Second,
+	}
+
+	dnsServers, dnsSource, err := selectDNSServers(opts.DNS)
+	if err != nil {
+		return nil, err
+	}
+	if dnsServers != nil {
+		dialer.Resolver = newDNSResolver(dnsServers)
+		opts.Log("%s: %s", dnsSource, strings.Join(dnsServers, ", "))
 	}
 
 	tr := &http.Transport{
