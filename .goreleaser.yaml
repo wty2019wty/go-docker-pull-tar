@@ -1,0 +1,52 @@
+# GoReleaser 配置：由 .github/workflows/release.yml 在推送 v* tag 时调用。
+# 文档：https://goreleaser.com/customization/
+version: 2
+
+project_name: go-docker-pull-tar
+
+builds:
+  - id: gdockerpull
+    main: .
+    binary: gdockerpull
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      # 注入与 GitHub Release tag 一致的版本号，如 v2.0.0
+      - -s -w -X main.Version={{ .Tag }}
+
+archives:
+  - id: default
+    ids:
+      - gdockerpull
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: ["tar.gz"]
+    format_overrides:
+      - goos: windows
+        formats: ["zip"]
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^doc:"
+      - "^test:"
+      - "^tests:"
+      - "^chore"
+      - "^ci"
+      - "^style"

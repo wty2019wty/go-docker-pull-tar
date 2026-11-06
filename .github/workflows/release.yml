@@ -1,0 +1,34 @@
+# 发布：推送形如 v1.2.3 的 tag 后，由 GoReleaser 自动交叉编译、
+# 打包多平台产物并发布到 GitHub Releases。
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  goreleaser:
+    name: GoReleaser 发布
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码（含全部历史与 tag，用于生成变更日志）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 安装 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: GoReleaser 发布
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

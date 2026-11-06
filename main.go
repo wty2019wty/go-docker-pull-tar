@@ -28,8 +28,9 @@ import (
 	"github.com/wty2019wty/go-docker-pull-tar/internal/ui"
 )
 
-// Version 是程序版本号。
-const Version = "v2.0.0"
+// Version 是程序版本号，默认为 dev，正式发布时由构建脚本或 CI 通过
+// -ldflags "-X main.Version=vX.Y.Z" 注入与 GitHub Release 一致的版本。
+var Version = "dev"
 
 type cliOptions struct {
 	image          string

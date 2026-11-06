@@ -1,5 +1,11 @@
 # go-docker-pull-tar
 
+[![CI](https://github.com/wty2019wty/go-docker-pull-tar/actions/workflows/ci.yml/badge.svg)](https://github.com/wty2019wty/go-docker-pull-tar/actions/workflows/ci.yml)
+[![Release](https://github.com/wty2019wty/go-docker-pull-tar/actions/workflows/release.yml/badge.svg)](https://github.com/wty2019wty/go-docker-pull-tar/actions/workflows/release.yml)
+[![GitHub Release](https://img.shields.io/github/v/release/wty2019wty/go-docker-pull-tar)](https://github.com/wty2019wty/go-docker-pull-tar/releases/latest)
+[![Go](https://img.shields.io/github/go-mod/go-version/wty2019wty/go-docker-pull-tar)](https://go.dev/)
+[![License](https://img.shields.io/github/license/wty2019wty/go-docker-pull-tar)](LICENSE)
+
 一个用 **纯 Go** 重写的 Docker 镜像拉取工具：不依赖 Docker、不依赖 Python、不启动守护进程，直接调用 Docker Registry HTTP API V2 把镜像下载并打包成 `docker load` 可导入的 tar 包，或 OCI 镜像布局。
 
 没有 Web UI、没有搜索、没有多余功能，只做一件事——**把镜像完整、快速、可断点续传地拉下来**。
@@ -25,13 +31,39 @@
   - `docker-legacy`：旧版未压缩 `layer.tar` 结构，兼容老版本 Docker。
 - **TLS 选项**：`-insecure` 跳过证书校验，`-plain-http` 访问本地 HTTP 仓库。
 
-## 快速开始
+## 下载与安装
+
+### 方式一：GitHub Releases（推荐）
+
+每个版本都会由 GitHub Actions 自动构建并发布多平台产物，前往
+[Releases](https://github.com/wty2019wty/go-docker-pull-tar/releases/latest) 页面下载对应平台的压缩包：
+
+| 平台 | 产物 |
+| ---- | ---- |
+| Linux | `go-docker-pull-tar_*_linux_amd64.tar.gz`、`go-docker-pull-tar_*_linux_arm64.tar.gz` |
+| macOS | `go-docker-pull-tar_*_darwin_amd64.tar.gz`、`go-docker-pull-tar_*_darwin_arm64.tar.gz` |
+| Windows | `go-docker-pull-tar_*_windows_amd64.zip`、`go-docker-pull-tar_*_windows_arm64.zip` |
+
+每个压缩包内含可执行文件 `gdockerpull`（Windows 为 `gdockerpull.exe`）、`LICENSE` 与 `README.md`；
+`checksums.txt` 提供全部产物的 SHA256 校验和，可用于验证下载完整性：
+
+```bash
+sha256sum -c checksums.txt --ignore-missing
+```
+
+### 方式二：go install
+
+```bash
+go install github.com/wty2019wty/go-docker-pull-tar@latest
+```
+
+### 方式三：源码编译
 
 要求 Go 1.22 及以上。
 
 ```bash
 cd go-docker-pull-tar
-go build -trimpath -ldflags "-s -w" -o gdockerpull
+go build -trimpath -ldflags "-s -w -X main.Version=$(git describe --tags --always)" -o gdockerpull
 ```
 
 Windows 下会得到 `gdockerpull.exe`，也可以直接运行：
@@ -39,6 +71,11 @@ Windows 下会得到 `gdockerpull.exe`，也可以直接运行：
 ```bat
 build.bat
 ```
+
+> 版本号通过 `-X main.Version=...` 在构建时注入；不注入时默认显示 `dev`。
+> 从 Releases 下载的二进制版本号会自动与发布 tag 保持一致。
+
+## 快速开始
 
 ### 拉取第一个镜像
 
@@ -296,8 +333,9 @@ go-docker-pull-tar/
 │   ├── transport/              # HTTP 客户端、TLS、HTTP/SOCKS5 代理
 │   ├── save/                   # docker save tar（新/旧格式）、OCI 布局
 │   └── ui/                     # 终端输出与进度
+├── .github/workflows/          # CI 测试与 Release 自动发布
+├── .goreleaser.yaml            # GoReleaser 多平台构建与打包配置
 ├── go.mod
-├── build.bat
 └── README.md
 ```
 
@@ -320,6 +358,28 @@ A：默认的 `docker` 格式会原样保留压缩层，需要 Docker 27+ 才能
 
 **Q：按 digest 拉取后镜像名是什么？**
 A：默认使用 `仓库:latest` 作为 `RepoTags`，可用 `-tag-name repo:tag` 覆盖。
+
+## 发布流程
+
+本项目使用 [GoReleaser](https://goreleaser.com/) + GitHub Actions 自动发布，维护者只需推送一个符合 [语义化版本](https://semver.org/lang/zh-CN/) 的 tag：
+
+```bash
+git tag v2.1.0
+git push origin v2.1.0
+```
+
+之后 [Release 工作流](.github/workflows/release.yml) 会自动完成：
+
+1. 交叉编译 `linux` / `darwin` / `windows` 的 `amd64` / `arm64` 共 6 个平台产物；
+2. 通过 `-ldflags` 把 tag 版本注入二进制（`gdockerpull -version` 可验证）；
+3. 打包压缩包（Windows 为 zip，其余为 tar.gz）并生成 `checksums.txt`；
+4. 根据提交历史自动生成变更日志，发布到 GitHub Releases。
+
+发布前可本地预览（不会真正发布）：
+
+```bash
+goreleaser release --snapshot --clean
+```
 
 ## 致谢
 
