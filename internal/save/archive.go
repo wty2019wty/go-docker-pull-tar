@@ -13,6 +13,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/wty2019wty/go-docker-pull-tar/internal/ui"
 )
 
 // LayerSource 描述一个本地层文件。
@@ -22,6 +24,55 @@ type LayerSource struct {
 	BlobPath  string
 	DiffID    string
 	Size      int64
+}
+
+// byteHook 在处理数据时按块上报字节数，可为 nil。
+type byteHook func(n int64)
+
+func (h byteHook) add(n int64) {
+	if h != nil && n > 0 {
+		h(n)
+	}
+}
+
+// countReader 统计从底层读取的字节数并上报。
+type countReader struct {
+	r    io.Reader
+	hook byteHook
+}
+
+func (c countReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.hook.add(int64(n))
+	return n, err
+}
+
+// progressLayers 在进度条上登记所有层，返回每层对应的索引。
+func progressLayers(p *ui.Progress, layers []LayerSource) []int {
+	if p == nil {
+		return nil
+	}
+	idxs := make([]int, len(layers))
+	for i, l := range layers {
+		idxs[i] = p.AddLayer(shortDigest(l.Digest), l.Size)
+	}
+	return idxs
+}
+
+// layerHook 返回上报第 i 层字节进度的回调。
+func layerHook(p *ui.Progress, idxs []int, i int) byteHook {
+	if p == nil || i < 0 || i >= len(idxs) {
+		return nil
+	}
+	return func(n int64) { p.AddDownloaded(idxs[i], n) }
+}
+
+// markLayerDone 将第 i 层标记为完成。
+func markLayerDone(p *ui.Progress, idxs []int, i int) {
+	if p == nil || i < 0 || i >= len(idxs) {
+		return
+	}
+	p.MarkLayerDone(idxs[i])
 }
 
 // ctxReader 在每次读取时检查取消信号。
@@ -90,15 +141,15 @@ func detectCompression(r *bufio.Reader) (compressionType, error) {
 	}
 }
 
-// unpackLayer 将层解压为未压缩 tar，并返回其 diffID。
-func unpackLayer(ctx context.Context, src LayerSource, dst string) (string, int64, error) {
+// unpackLayer 将层解压为未压缩 tar，并返回其 diffID。onBytes 上报读取源文件的字节数。
+func unpackLayer(ctx context.Context, src LayerSource, dst string, onBytes byteHook) (string, int64, error) {
 	in, err := os.Open(src.BlobPath)
 	if err != nil {
 		return "", 0, err
 	}
 	defer in.Close()
 
-	buffered := bufio.NewReaderSize(in, 256<<10)
+	buffered := bufio.NewReaderSize(countReader{r: in, hook: onBytes}, 256<<10)
 	ctype, err := detectCompression(buffered)
 	if err != nil {
 		return "", 0, err
@@ -146,8 +197,8 @@ func unpackLayer(ctx context.Context, src LayerSource, dst string) (string, int6
 	return diffID, fi.Size(), nil
 }
 
-// copyFile 复制文件并同时校验 sha256。
-func copyFile(ctx context.Context, src, dst, expectedDigest string) error {
+// copyFile 复制文件并同时校验 sha256。onBytes 上报读取源文件的字节数。
+func copyFile(ctx context.Context, src, dst, expectedDigest string, onBytes byteHook) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return err
@@ -160,7 +211,7 @@ func copyFile(ctx context.Context, src, dst, expectedDigest string) error {
 		return err
 	}
 	h := sha256.New()
-	if _, err := io.Copy(io.MultiWriter(out, h), ctxReader{ctx: ctx, r: in}); err != nil {
+	if _, err := io.Copy(io.MultiWriter(out, h), ctxReader{ctx: ctx, r: countReader{r: in, hook: onBytes}}); err != nil {
 		out.Close()
 		_ = os.Remove(tmp)
 		return err

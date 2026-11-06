@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 
 	"github.com/wty2019wty/go-docker-pull-tar/internal/registry"
+	"github.com/wty2019wty/go-docker-pull-tar/internal/ui"
 )
 
 // DockerModernOptions 是生成新版 docker save 格式（OCI 布局 + manifest.json）的参数。
@@ -30,6 +31,8 @@ type DockerModernOptions struct {
 	ConfigBytes       []byte
 	Layers            []LayerSource
 	TempDir           string
+	// Progress 上报打包进度，可为 nil。
+	Progress *ui.Progress
 }
 
 // dockerModernManifestItem 对应新版 docker save 的 manifest.json 条目。
@@ -66,6 +69,7 @@ func WriteDockerModern(ctx context.Context, opts DockerModernOptions) error {
 		}
 		layerHashes[i] = h
 	}
+	idxs := progressLayers(opts.Progress, opts.Layers)
 
 	tmpTar := opts.OutputPath + ".tmp"
 	_ = os.Remove(tmpTar)
@@ -93,9 +97,10 @@ func WriteDockerModern(ctx context.Context, opts DockerModernOptions) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := writeBlobFile(ctx, tw, path.Join("blobs", "sha256", layerHashes[i]), layer.BlobPath, layer.Digest); err != nil {
+		if err := writeBlobFile(ctx, tw, path.Join("blobs", "sha256", layerHashes[i]), layer.BlobPath, layer.Digest, layerHook(opts.Progress, idxs, i)); err != nil {
 			return err
 		}
+		markLayerDone(opts.Progress, idxs, i)
 	}
 	// 3. OCI 清单 Blob。
 	if err := writeBlobBytes(tw, path.Join("blobs", "sha256", manifestHex), opts.ManifestBytes); err != nil {
@@ -191,8 +196,8 @@ func writeBlobBytes(tw *tar.Writer, name string, data []byte) error {
 	return err
 }
 
-// writeBlobFile 将本地 Blob 写入 tar，同时重新校验摘要。
-func writeBlobFile(ctx context.Context, tw *tar.Writer, name, srcPath, expectedDigest string) error {
+// writeBlobFile 将本地 Blob 写入 tar，同时重新校验摘要。onBytes 上报读取的字节数。
+func writeBlobFile(ctx context.Context, tw *tar.Writer, name, srcPath, expectedDigest string, onBytes byteHook) error {
 	fi, err := os.Stat(srcPath)
 	if err != nil {
 		return err
@@ -218,6 +223,7 @@ func writeBlobFile(ctx context.Context, tw *tar.Writer, name, srcPath, expectedD
 				return err
 			}
 			h.Write(buf[:n])
+			onBytes.add(int64(n))
 		}
 		if readErr != nil {
 			if readErr == io.EOF {

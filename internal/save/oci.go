@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/wty2019wty/go-docker-pull-tar/internal/registry"
+	"github.com/wty2019wty/go-docker-pull-tar/internal/ui"
 )
 
 // OCIOptions 是生成 OCI 镜像布局的参数。
@@ -29,6 +30,8 @@ type OCIOptions struct {
 	ConfigBytes       []byte
 	Layers            []LayerSource
 	TempDir           string
+	// Progress 上报打包进度，可为 nil。
+	Progress *ui.Progress
 }
 
 type ociIndexEntry struct {
@@ -91,7 +94,8 @@ func WriteOCI(ctx context.Context, opts OCIOptions) error {
 		return err
 	}
 	// 3. 复制层 Blob。
-	for _, layer := range opts.Layers {
+	idxs := progressLayers(opts.Progress, opts.Layers)
+	for i, layer := range opts.Layers {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -101,11 +105,13 @@ func WriteOCI(ctx context.Context, opts OCIOptions) error {
 		}
 		dst := filepath.Join(blobsDir, h)
 		if _, err := os.Stat(dst); err == nil {
+			markLayerDone(opts.Progress, idxs, i)
 			continue
 		}
-		if err := copyFile(ctx, layer.BlobPath, dst, layer.Digest); err != nil {
+		if err := copyFile(ctx, layer.BlobPath, dst, layer.Digest, layerHook(opts.Progress, idxs, i)); err != nil {
 			return err
 		}
+		markLayerDone(opts.Progress, idxs, i)
 	}
 
 	// 4. 写入 index.json。

@@ -494,7 +494,9 @@ func pullAndSave(
 		u.Printf("警告: 该镜像包含 zstd 压缩层；新版 docker 格式会原样保留压缩层，需要 Docker 27+ 才能导入。")
 		u.Printf("   旧版 Docker 请改用 -format oci，或使用 docker-legacy（会解压，但旧版 docker-legacy 不支持 zstd）。")
 	}
-	stopPack := u.StartStallWatch("生成镜像文件（打包，大镜像可能需要数分钟）", 30*time.Second)
+	packProgress := ui.NewProgress(u)
+	packProgress.SetLabel("打包")
+	packProgress.Start()
 	switch opts.format {
 	case "docker":
 		err = save.WriteDockerModern(ctx, save.DockerModernOptions{
@@ -510,6 +512,7 @@ func pullAndSave(
 			ConfigBytes:       configBytes,
 			Layers:            layerSources,
 			TempDir:           filepath.Join(cacheDir, "tmp"),
+			Progress:          packProgress,
 		})
 	case "docker-legacy":
 		err = save.WriteDockerTar(ctx, save.DockerOptions{
@@ -521,6 +524,7 @@ func pullAndSave(
 			ConfigBytes:  configBytes,
 			Layers:       layerSources,
 			TempDir:      filepath.Join(cacheDir, "tmp"),
+			Progress:     packProgress,
 		})
 	case "oci":
 		err = save.WriteOCI(ctx, save.OCIOptions{
@@ -534,9 +538,10 @@ func pullAndSave(
 			ConfigBytes:       configBytes,
 			Layers:            layerSources,
 			TempDir:           filepath.Join(cacheDir, "tmp"),
+			Progress:          packProgress,
 		})
 	}
-	stopPack()
+	packProgress.Stop()
 	if err != nil {
 		return fmt.Errorf("生成镜像文件失败: %w", err)
 	}

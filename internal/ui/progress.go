@@ -20,6 +20,7 @@ type progressLayer struct {
 type Progress struct {
 	ui *UI
 
+	label   string
 	mu      sync.Mutex
 	layers  []*progressLayer
 	total   int64
@@ -41,8 +42,18 @@ type Progress struct {
 func NewProgress(ui *UI) *Progress {
 	return &Progress{
 		ui:     ui,
+		label:  "下载",
 		stop:   make(chan struct{}),
 		doneCh: make(chan struct{}),
+	}
+}
+
+// SetLabel 设置进度行前缀（例如"下载"、"打包"），需在 Start 之前调用。
+func (p *Progress) SetLabel(label string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if strings.TrimSpace(label) != "" {
+		p.label = label
 	}
 }
 
@@ -224,6 +235,7 @@ func (p *Progress) render(now time.Time) {
 	lastTime := p.lastTime
 	speed := p.speed
 	started := p.started
+	label := p.label
 	layers := len(p.layers)
 	finished := 0
 	for _, l := range p.layers {
@@ -274,7 +286,8 @@ func (p *Progress) render(now time.Time) {
 	}
 
 	var b strings.Builder
-	b.WriteString("下载 ")
+	b.WriteString(label)
+	b.WriteString(" ")
 	b.WriteString("[")
 	b.WriteString(bar)
 	b.WriteString("] ")

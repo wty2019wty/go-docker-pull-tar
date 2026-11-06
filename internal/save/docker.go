@@ -11,6 +11,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/wty2019wty/go-docker-pull-tar/internal/ui"
 )
 
 // DockerOptions 是生成 docker save 格式 tar 的参数。
@@ -23,6 +25,8 @@ type DockerOptions struct {
 	ConfigBytes  []byte
 	Layers       []LayerSource
 	TempDir      string
+	// Progress 上报打包进度，可为 nil。
+	Progress *ui.Progress
 }
 
 // dockerManifestEntry 对应 docker save 的 manifest.json 条目。
@@ -86,13 +90,14 @@ func WriteDockerTar(ctx context.Context, opts DockerOptions) error {
 	}
 
 	tarLayers := make([]string, 0, len(opts.Layers))
+	idxs := progressLayers(opts.Progress, opts.Layers)
 	for i, layer := range opts.Layers {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		unpacked := filepath.Join(opts.TempDir, fmt.Sprintf("unpack-%d-%s.tar", i, ids[i][:8]))
 		_ = os.Remove(unpacked)
-		if _, _, err := unpackLayer(ctx, layer, unpacked); err != nil {
+		if _, _, err := unpackLayer(ctx, layer, unpacked, layerHook(opts.Progress, idxs, i)); err != nil {
 			_ = os.Remove(unpacked)
 			return err
 		}
@@ -139,6 +144,7 @@ func WriteDockerTar(ctx context.Context, opts DockerOptions) error {
 			return err
 		}
 
+		markLayerDone(opts.Progress, idxs, i)
 		tarLayers = append(tarLayers, layerDir+"/layer.tar")
 	}
 

@@ -263,13 +263,25 @@ func (d *Downloader) Download(ctx context.Context, blobs []Blob) error {
 				d.opts.Progress.MarkLayerDone(st.progressIdx)
 				continue
 			}
-			// 否则重新计算摘要确认完整性。
-			if valid, err := d.verifyObject(objectPath, b.Digest); err == nil && valid {
+			// 否则重新计算摘要确认完整性，并把读取的字节计入进度条。
+			d.opts.UI.Infof("正在校验缓存层 %s（%s）...", shortDigest(b.Digest), ui.FormatBytes(fi.Size()))
+			var fed int64
+			idx := st.progressIdx
+			valid, err := d.verifyObject(objectPath, b.Digest, func(n int64) {
+				fed += n
+				d.opts.Progress.Add(idx, n)
+			})
+			if err == nil && valid {
 				st.verified = true
 				d.state.Verified[b.Digest] = fi.Size()
 				d.opts.Progress.SetLayerTotal(st.progressIdx, fi.Size())
 				d.opts.Progress.MarkLayerDone(st.progressIdx)
+				d.opts.UI.Infof("层 %s 校验通过（%s）", shortDigest(b.Digest), ui.FormatBytes(fi.Size()))
 				continue
+			}
+			if fed > 0 {
+				// 校验失败时回退记账，避免进度虚高。
+				d.opts.Progress.Add(idx, -fed)
 			}
 			_ = os.Remove(objectPath)
 			delete(d.state.Verified, b.Digest)
@@ -843,10 +855,11 @@ func (d *Downloader) assembleAndVerify() ([]*blobState, error) {
 			return nil, fmt.Errorf("层 %s 的分片不完整", shortDigest(st.blob.Digest))
 		}
 
+		d.opts.UI.Infof("正在合并并校验层 %s（%s）...", shortDigest(st.blob.Digest), ui.FormatBytes(st.blob.Size))
 		if err := d.assemble(st, objectPath); err != nil {
 			return nil, err
 		}
-		valid, err := d.verifyObject(objectPath, st.blob.Digest)
+		valid, err := d.verifyObject(objectPath, st.blob.Digest, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -917,18 +930,31 @@ func (d *Downloader) assemble(st *blobState, objectPath string) error {
 	return os.Rename(tmp, objectPath)
 }
 
-func (d *Downloader) verifyObject(path, digest string) (bool, error) {
+// verifyObject 校验文件摘要。onBytes 上报已读取的字节数（可为 nil）。
+func (d *Downloader) verifyObject(path, digest string, onBytes func(int64)) (bool, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return false, err
 	}
 	defer f.Close()
 	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
+	if _, err := io.Copy(io.MultiWriter(h, countWriter{fn: onBytes}), f); err != nil {
 		return false, err
 	}
 	actual := "sha256:" + hex.EncodeToString(h.Sum(nil))
 	return actual == digest, nil
+}
+
+// countWriter 将写入的字节数上报给回调。
+type countWriter struct {
+	fn func(int64)
+}
+
+func (c countWriter) Write(p []byte) (int, error) {
+	if c.fn != nil {
+		c.fn(int64(len(p)))
+	}
+	return len(p), nil
 }
 
 func (d *Downloader) resetBlob(st *blobState) {
