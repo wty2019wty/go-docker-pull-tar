@@ -284,3 +284,73 @@ func TestDownloadSingleStream(t *testing.T) {
 		t.Fatal("单流下载内容不一致")
 	}
 }
+
+// TestRangeIgnoredMidDownload 验证探测时支持 Range、分片下载时却忽略 Range 的服务器
+// 会触发自动退化为单流下载，最终仍能完整下载并校验。
+func TestRangeIgnoredMidDownload(t *testing.T) {
+	payload := make([]byte, 300)
+	for i := range payload {
+		payload[i] = byte(i)
+	}
+	sum := sha256.Sum256(payload)
+	digest := "sha256:" + hex.EncodeToString(sum[:])
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Range") == "bytes=0-0" {
+			// 仅响应 Range 探测，模拟支持 Range 的服务器。
+			w.Header().Set("Content-Range", fmt.Sprintf("bytes 0-0/%d", len(payload)))
+			w.WriteHeader(http.StatusPartialContent)
+			_, _ = w.Write(payload[:1])
+			return
+		}
+		// 其余请求一律忽略 Range，返回完整内容。
+		_, _ = w.Write(payload)
+	}))
+	t.Cleanup(srv.Close)
+
+	host := strings.TrimPrefix(srv.URL, "http://")
+	client := registry.New(registry.Options{
+		Registry:   host,
+		Repository: "test/repo",
+		HTTPClient: srv.Client(),
+		PlainHTTP:  true,
+		UserAgent:  "test",
+	})
+
+	u := ui.New(true, false)
+	d, err := New(Options{
+		Client:         client,
+		HTTPClient:     srv.Client(),
+		CacheDir:       t.TempDir(),
+		ManifestDigest: "sha256:" + strings.Repeat("a", 64),
+		Platform:       "linux/amd64",
+		Workers:        2,
+		ChunkSize:      100,
+		MinChunkSize:   100,
+		Retries:        1,
+		Progress:       ui.NewProgress(u),
+		UI:             u,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Download(context.Background(), []Blob{{Digest: digest, Size: int64(len(payload))}}); err != nil {
+		t.Fatalf("Download() error = %v", err)
+	}
+	obj, _ := ObjectPath(d.opts.CacheDir, digest)
+	got, _ := os.ReadFile(obj)
+	if string(got) != string(payload) {
+		t.Fatal("退化为单流后下载内容不一致")
+	}
+}
+
+// TestRetriesZeroKept 验证 -retries 0 不会被默认值覆盖。
+func TestRetriesZeroKept(t *testing.T) {
+	d, err := New(Options{CacheDir: t.TempDir(), Retries: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.opts.Retries != 0 {
+		t.Fatalf("Retries = %d, want 0", d.opts.Retries)
+	}
+}

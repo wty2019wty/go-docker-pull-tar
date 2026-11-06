@@ -51,7 +51,10 @@ func retryable(err error) bool {
 
 // retry 执行带指数退避的重试。
 func (c *Client) retry(ctx context.Context, fn func() error) error {
-	const attempts = 5
+	attempts := c.opts.Retries + 1
+	if attempts < 1 {
+		attempts = 1
+	}
 	var last error
 	for i := 0; i < attempts; i++ {
 		if err := ctx.Err(); err != nil {
@@ -86,7 +89,9 @@ type Options struct {
 	HTTPClient  *http.Client
 	UserAgent   string
 	PlainHTTP   bool
-	Verbose     func(format string, args ...interface{})
+	// Retries 是单个请求的最大重试次数，0 表示不重试。
+	Retries int
+	Verbose func(format string, args ...interface{})
 	// Log 输出关键过程信息（认证挑战、获取令牌、请求重试等），默认不输出。
 	Log func(format string, args ...interface{})
 }

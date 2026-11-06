@@ -124,7 +124,7 @@ docker load -i ./library_nginx_latest_linux_amd64.tar
 | `-workers, -w` | 并发下载连接数（最大 128） | `8` |
 | `-chunk-size` | 大层分片大小，`0` 表示禁用分片 | `8MiB` |
 | `-min-chunk-size` | 启用分片的最小层大小 | `16MiB` |
-| `-retries` | 单个请求最大重试次数 | `8` |
+| `-retries` | 单个请求最大重试次数，`0` 表示不重试 | `8` |
 | `-format` | 输出格式：`docker`、`docker-legacy` 或 `oci` | `docker` |
 | `-o, -output` | 输出文件或目录 | 自动生成 |
 | `-cache-dir` | 断点续传缓存目录 | 输出文件旁的隐藏目录 |

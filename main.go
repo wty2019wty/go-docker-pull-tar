@@ -169,6 +169,7 @@ func realMain() int {
 		return 2
 	}
 	if opts.workers > 128 {
+		fmt.Fprintln(os.Stderr, "提示: -workers 最大支持 128，已自动调整为 128")
 		opts.workers = 128
 	}
 	if opts.retries < 0 {
@@ -244,6 +245,7 @@ func run(ctx context.Context, opts cliOptions, u *ui.UI) (bool, error) {
 		HTTPClient:  httpClient,
 		UserAgent:   "go-docker-pull-tar/" + Version,
 		PlainHTTP:   opts.plainHTTP,
+		Retries:     opts.retries,
 		Verbose:     u.Verbosef,
 		Log:         u.Infof,
 	})
@@ -680,13 +682,19 @@ func resolvePlatform(opts cliOptions) (registry.Platform, bool, error) {
 			return registry.Platform{}, true, err
 		}
 		if opts.arch != "" || opts.osName != "" || opts.variant != "" {
+			origArch := p.Architecture
 			if opts.osName != "" {
 				p.OS = strings.ToLower(strings.TrimSpace(opts.osName))
 			}
 			if opts.arch != "" {
 				p.Architecture = registry.NormalizeArch(opts.arch)
 			}
-			p.Variant = registry.NormalizeVariant(p.Architecture, opts.variant)
+			if opts.variant != "" {
+				p.Variant = registry.NormalizeVariant(p.Architecture, opts.variant)
+			} else if opts.arch != "" && p.Architecture != origArch {
+				// 架构被覆盖且未显式指定变体时，旧变体可能失效，按新架构重新归一化。
+				p.Variant = registry.NormalizeVariant(p.Architecture, "")
+			}
 		}
 		return p, explicit, nil
 	}

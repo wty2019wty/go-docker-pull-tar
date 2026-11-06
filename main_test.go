@@ -175,3 +175,31 @@ func TestRunEndToEndWithBasicAuth(t *testing.T) {
 		t.Fatal("生成的 tar 中缺少 manifest.json")
 	}
 }
+
+// TestResolvePlatformVariant 验证 -platform 与 -os/-arch/-variant 组合时的变体处理。
+func TestResolvePlatformVariant(t *testing.T) {
+	cases := []struct {
+		name     string
+		opts     cliOptions
+		wantOS   string
+		wantArch string
+		wantVar  string
+	}{
+		{"platform 变体在补充 -os 时保留", cliOptions{platform: "linux/arm/v6", osName: "linux"}, "linux", "arm", "v6"},
+		{"platform 变体在架构相同时保留", cliOptions{platform: "linux/arm/v6", arch: "arm"}, "linux", "arm", "v6"},
+		{"架构覆盖后重置变体", cliOptions{platform: "linux/arm/v7", arch: "arm64"}, "linux", "arm64", ""},
+		{"显式 -variant 优先", cliOptions{platform: "linux/arm/v6", variant: "v7"}, "linux", "arm", "v7"},
+		{"默认 arm 变体 v7", cliOptions{arch: "arm"}, "linux", "arm", "v7"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p, _, err := resolvePlatform(tc.opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if p.OS != tc.wantOS || p.Architecture != tc.wantArch || p.Variant != tc.wantVar {
+				t.Fatalf("got %s, want %s/%s/%s", p.String(), tc.wantOS, tc.wantArch, tc.wantVar)
+			}
+		})
+	}
+}

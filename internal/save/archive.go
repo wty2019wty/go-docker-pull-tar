@@ -197,6 +197,20 @@ func unpackLayer(ctx context.Context, src LayerSource, dst string, onBytes byteH
 	return diffID, fi.Size(), nil
 }
 
+// verifyFileDigest 校验文件摘要是否与期望一致。
+func verifyFileDigest(path, expectedDigest string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return false
+	}
+	return "sha256:"+hex.EncodeToString(h.Sum(nil)) == expectedDigest
+}
+
 // copyFile 复制文件并同时校验 sha256。onBytes 上报读取源文件的字节数。
 func copyFile(ctx context.Context, src, dst, expectedDigest string, onBytes byteHook) error {
 	in, err := os.Open(src)

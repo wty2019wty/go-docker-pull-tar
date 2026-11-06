@@ -43,9 +43,10 @@ type Options struct {
 	Workers        int
 	ChunkSize      int64
 	MinChunkSize   int64
-	Retries        int
-	Progress       *ui.Progress
-	UI             *ui.UI
+	// Retries 是单个请求的最大重试次数，0 表示不重试。
+	Retries  int
+	Progress *ui.Progress
+	UI       *ui.UI
 }
 
 // Downloader 负责把一个镜像的所有层下载到缓存目录。
@@ -89,8 +90,8 @@ func New(opts Options) (*Downloader, error) {
 	if opts.Workers <= 0 {
 		opts.Workers = 8
 	}
-	if opts.Retries <= 0 {
-		opts.Retries = 8
+	if opts.Retries < 0 {
+		opts.Retries = 0
 	}
 	if opts.ChunkSize < 0 {
 		opts.ChunkSize = 0
@@ -293,12 +294,21 @@ func (d *Downloader) Download(ctx context.Context, blobs []Blob) error {
 		return err
 	}
 
-	// 3. 下载 + 校验，校验失败时自动重下一次。
+	// 3. 下载 + 校验；校验失败自动重下一次，中途 Range 失效则退化为单流后重下。
 	var lastErr error
-	for attempt := 0; attempt < 2; attempt++ {
+	verifyRetries := 0
+	fallbackSingle := false
+	for {
 		tasks := d.buildTasks()
 		if len(tasks) > 0 {
 			if err := d.runTasks(ctx, tasks); err != nil {
+				if errors.Is(err, errRangeUnsupported) && !fallbackSingle {
+					// 服务器中途不再支持 Range：丢弃分片计划，整体退化为单流重新下载。
+					fallbackSingle = true
+					d.opts.UI.Printf("警告: 服务器不再支持 Range 请求，自动退化为单流下载")
+					d.disableChunking()
+					continue
+				}
 				return err
 			}
 			d.opts.UI.Infof("分片下载完成，正在合并并校验层数据...")
@@ -313,15 +323,15 @@ func (d *Downloader) Download(ctx context.Context, blobs []Blob) error {
 		}
 
 		lastErr = fmt.Errorf("%d 个层校验失败", len(bad))
+		verifyRetries++
+		if verifyRetries > 1 {
+			return lastErr
+		}
 		for _, st := range bad {
 			d.opts.UI.Printf("警告: 层 %s 校验失败，重新下载", shortDigest(st.blob.Digest))
 			d.resetBlob(st)
 		}
 	}
-	if lastErr == nil {
-		lastErr = fmt.Errorf("下载失败")
-	}
-	return lastErr
 }
 
 func shortDigest(digest string) string {
@@ -555,7 +565,7 @@ func (d *Downloader) runTasks(ctx context.Context, tasks []task) error {
 
 func (d *Downloader) downloadPart(ctx context.Context, t task) error {
 	var lastErr error
-	for attempt := 0; attempt <= d.opts.Retries; attempt++ {
+	for attempt := 0; ; attempt++ {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -569,6 +579,9 @@ func (d *Downloader) downloadPart(ctx context.Context, t task) error {
 		}
 		if isFatal(err) {
 			return err
+		}
+		if attempt >= d.opts.Retries {
+			break
 		}
 		wait := time.Duration(1<<min(attempt, 5)) * 500 * time.Millisecond
 		if wait > 30*time.Second {
@@ -656,6 +669,10 @@ func (d *Downloader) tryPart(ctx context.Context, t task) error {
 			}
 		}
 	case http.StatusOK:
+		if t.blob.chunked {
+			// 分片请求收到整段响应，说明服务器忽略了 Range 头，退化为单流处理。
+			return fmt.Errorf("%w（分片 %d-%d）", errRangeUnsupported, p.start, p.end)
+		}
 		if p.start > 0 {
 			return fmt.Errorf("%w（分片起点 %d）", errRangeUnsupported, p.start)
 		}
@@ -969,6 +986,20 @@ func (d *Downloader) resetBlob(st *blobState) {
 	// 重新生成分片计划。
 	st.parts = d.makeParts(st.blob, len(st.parts) > 1)
 	st.chunked = len(st.parts) > 1
+}
+
+// disableChunking 将所有未完成的层退化为单流下载计划（丢弃已有分片），
+// 用于服务器中途不再支持 Range 请求的场景。
+func (d *Downloader) disableChunking() {
+	for _, st := range d.blobs {
+		if st.verified {
+			continue
+		}
+		d.opts.Progress.ResetLayer(st.progressIdx)
+		_ = os.RemoveAll(filepath.Join(d.opts.CacheDir, "parts", mustHex(st.blob.Digest)))
+		st.parts = d.makeParts(st.blob, false)
+		st.chunked = false
+	}
 }
 
 func mustHex(digest string) string {

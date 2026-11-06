@@ -105,8 +105,12 @@ func WriteOCI(ctx context.Context, opts OCIOptions) error {
 		}
 		dst := filepath.Join(blobsDir, h)
 		if _, err := os.Stat(dst); err == nil {
-			markLayerDone(opts.Progress, idxs, i)
-			continue
+			// 复用前校验摘要，防止上次中断留下的损坏文件混入布局。
+			if verifyFileDigest(dst, layer.Digest) {
+				markLayerDone(opts.Progress, idxs, i)
+				continue
+			}
+			_ = os.Remove(dst)
 		}
 		if err := copyFile(ctx, layer.BlobPath, dst, layer.Digest, layerHook(opts.Progress, idxs, i)); err != nil {
 			return err
@@ -165,7 +169,13 @@ func writeBytesVerified(ctx context.Context, dir, digest string, data []byte) er
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, h), data, 0o644)
+	dst := filepath.Join(dir, h)
+	// 先写临时文件再重命名，避免中断留下截断文件被后续复用。
+	tmp := dst + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, dst)
 }
 
 // tarDir 将目录打包为 tar，路径保持相对形式。
