@@ -2,8 +2,9 @@
 name: CI
 
 on:
+  # 所有分支的 push 均触发
   push:
-    branches: [main, master]
+  # 所有目标分支的 PR 均触发
   pull_request:
 
 permissions:
