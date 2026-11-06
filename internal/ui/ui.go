@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 )
 
 // UI 负责在进度条与普通日志之间协调输出。
@@ -64,6 +65,34 @@ func (u *UI) Errorf(format string, args ...interface{}) {
 	defer u.mu.Unlock()
 	u.clearLocked()
 	fmt.Fprintf(os.Stderr, format+"\n", args...)
+}
+
+// StartStallWatch 启动卡顿监视：当某个阶段迟迟未完成时，每隔 interval 打印一次
+// 等待提示，让用户知道程序仍在运行、当前卡在哪一步。
+// 返回停止函数，可安全地重复调用。
+func (u *UI) StartStallWatch(stage string, interval time.Duration) func() {
+	if interval <= 0 {
+		interval = 15 * time.Second
+	}
+	done := make(chan struct{})
+	var once sync.Once
+	stop := func() {
+		once.Do(func() { close(done) })
+	}
+	start := time.Now()
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				u.Infof("仍在%s...（已等待 %s，可按 Ctrl+C 中断）", stage, time.Since(start).Round(time.Second))
+			}
+		}
+	}()
+	return stop
 }
 
 // Progress 渲染一行进度（不换行）。

@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/wty2019wty/go-docker-pull-tar/internal/download"
 	"github.com/wty2019wty/go-docker-pull-tar/internal/reference"
@@ -239,16 +240,22 @@ func run(ctx context.Context, opts cliOptions, u *ui.UI) (bool, error) {
 		UserAgent:   "go-docker-pull-tar/" + Version,
 		PlainHTTP:   opts.plainHTTP,
 		Verbose:     u.Verbosef,
+		Log:         u.Infof,
 	})
 
-	u.Verbosef("仓库地址: %s", ref.Registry)
-	u.Verbosef("仓库路径: %s", ref.Repository)
-	u.Verbosef("引用: %s", ref.Reference())
+	u.Infof("仓库地址: %s", ref.Registry)
+	u.Infof("仓库路径: %s", ref.Repository)
+	u.Infof("引用: %s", ref.Reference())
 
+	u.Infof("正在获取镜像清单: %s/manifests/%s", ref.Registry, ref.Reference())
+	stopWatch := u.StartStallWatch("获取镜像清单", 15*time.Second)
+	start := time.Now()
 	manifestBytes, mediaType, manifestDigest, err := rc.FetchManifest(ctx, ref.Reference())
+	stopWatch()
 	if err != nil {
 		return false, err
 	}
+	u.Infof("已获取清单: %s（%s，耗时 %s）", mediaType, ui.FormatBytes(int64(len(manifestBytes))), time.Since(start).Round(time.Millisecond))
 	if ref.Digest != "" && manifestDigest != ref.Digest {
 		return false, fmt.Errorf("清单摘要不匹配: 期望 %s，实际 %s", ref.Digest, manifestDigest)
 	}
@@ -265,6 +272,8 @@ func run(ctx context.Context, opts cliOptions, u *ui.UI) (bool, error) {
 	var platform registry.Platform
 	wasIndex := manifest.IsIndex()
 	if manifest.IsIndex() {
+		u.Infof("该镜像是多平台索引，共 %d 个平台: %s",
+			len(registry.Platforms(manifest.Manifests)), strings.Join(registry.Platforms(manifest.Manifests), ", "))
 		if opts.listPlatforms {
 			printPlatforms(u, manifest.Manifests)
 			return true, nil
@@ -285,9 +294,13 @@ func run(ctx context.Context, opts cliOptions, u *ui.UI) (bool, error) {
 					ref.Name(), want.String(), strings.Join(available, ", "))
 			}
 		}
-		u.Verbosef("选择平台 %s -> %s", want.String(), desc.Digest)
+		u.Infof("已选择平台 %s -> %s", want.String(), desc.Digest)
 
+		u.Infof("正在获取平台清单: %s", desc.Digest)
+		stopWatch = u.StartStallWatch("获取平台清单", 15*time.Second)
+		start = time.Now()
 		childBytes, childMedia, err := rc.FetchManifestDigest(ctx, desc.Digest)
+		stopWatch()
 		if err != nil {
 			return false, err
 		}
@@ -295,6 +308,7 @@ func run(ctx context.Context, opts cliOptions, u *ui.UI) (bool, error) {
 		if err != nil {
 			return false, err
 		}
+		u.Infof("已获取平台清单: %d 个层，%s（耗时 %s）", len(child.Layers), ui.FormatBytes(totalLayerSize(child.Layers)), time.Since(start).Round(time.Millisecond))
 		if child.IsIndex() {
 			return false, fmt.Errorf("暂不支持嵌套的多平台索引")
 		}
@@ -315,11 +329,15 @@ func run(ctx context.Context, opts cliOptions, u *ui.UI) (bool, error) {
 		return false, fmt.Errorf("清单中缺少配置对象")
 	}
 
-	u.Verbosef("获取镜像配置: %s", manifest.Config.Digest)
+	u.Infof("正在获取镜像配置: %s", manifest.Config.Digest)
+	stopWatch = u.StartStallWatch("获取镜像配置", 15*time.Second)
+	start = time.Now()
 	configBytes, err := rc.FetchBlob(ctx, manifest.Config.Digest, 64<<20)
+	stopWatch()
 	if err != nil {
 		return false, err
 	}
+	u.Infof("已获取镜像配置: %s（耗时 %s）", ui.FormatBytes(int64(len(configBytes))), time.Since(start).Round(time.Millisecond))
 	var imageConfig registry.ImageConfig
 	if err := json.Unmarshal(configBytes, &imageConfig); err != nil {
 		return false, fmt.Errorf("解析镜像配置失败: %w", err)
@@ -425,6 +443,7 @@ func pullAndSave(
 		})
 	}
 
+	u.Infof("开始下载层数据（%d 个层，并发 %d）...", len(blobs), opts.workers)
 	progress.Start()
 	err = dl.Download(ctx, blobs)
 	progress.Stop()
@@ -475,6 +494,7 @@ func pullAndSave(
 		u.Printf("警告: 该镜像包含 zstd 压缩层；新版 docker 格式会原样保留压缩层，需要 Docker 27+ 才能导入。")
 		u.Printf("   旧版 Docker 请改用 -format oci，或使用 docker-legacy（会解压，但旧版 docker-legacy 不支持 zstd）。")
 	}
+	stopPack := u.StartStallWatch("生成镜像文件（打包，大镜像可能需要数分钟）", 30*time.Second)
 	switch opts.format {
 	case "docker":
 		err = save.WriteDockerModern(ctx, save.DockerModernOptions{
@@ -516,6 +536,7 @@ func pullAndSave(
 			TempDir:           filepath.Join(cacheDir, "tmp"),
 		})
 	}
+	stopPack()
 	if err != nil {
 		return fmt.Errorf("生成镜像文件失败: %w", err)
 	}

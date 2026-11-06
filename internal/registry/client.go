@@ -68,7 +68,7 @@ func (c *Client) retry(ctx context.Context, fn func() error) error {
 		if wait > 10*time.Second {
 			wait = 10 * time.Second
 		}
-		c.opts.Verbose("请求失败，%s 后重试 (%d/%d): %v", wait, i+1, attempts-1, last)
+		c.opts.Log("请求失败，%s 后重试 (%d/%d): %v", wait, i+1, attempts-1, last)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -87,6 +87,8 @@ type Options struct {
 	UserAgent   string
 	PlainHTTP   bool
 	Verbose     func(format string, args ...interface{})
+	// Log 输出关键过程信息（认证挑战、获取令牌、请求重试等），默认不输出。
+	Log func(format string, args ...interface{})
 }
 
 // Client 是一个仓库维度的 Registry API 客户端，内部缓存访问令牌。
@@ -112,6 +114,9 @@ func New(opts Options) *Client {
 	}
 	if opts.Verbose == nil {
 		opts.Verbose = func(string, ...interface{}) {}
+	}
+	if opts.Log == nil {
+		opts.Log = func(string, ...interface{}) {}
 	}
 	scheme := "https"
 	if opts.PlainHTTP {
@@ -168,12 +173,15 @@ func (c *Client) do(req *http.Request) (*http.Response, error) {
 			if c.opts.Credentials.Empty() {
 				return nil, fmt.Errorf("仓库 %s 要求认证，请通过 -username/-password 提供凭据", c.opts.Registry)
 			}
+			c.opts.Log("仓库 %s 要求认证（未返回 WWW-Authenticate），尝试 Basic 认证", c.opts.Registry)
 			c.mu.Lock()
 			c.authHeader = basicAuthHeader(c.opts.Credentials)
 			c.authExpiry = time.Now().Add(5 * time.Minute)
 			c.mu.Unlock()
 			continue
 		}
+
+		c.opts.Log("收到认证挑战: %s realm=%q service=%q", ch.Scheme, ch.Realm, ch.Service)
 
 		if err := c.refreshAuth(req.Context(), ch, attempt > 0); err != nil {
 			return nil, err
@@ -235,7 +243,7 @@ func (c *Client) refreshAuth(ctx context.Context, ch *challenge, force bool) err
 	c.challenge = ch
 	c.mu.Unlock()
 
-	c.opts.Verbose("认证成功: scheme=%s service=%s", ch.Scheme, ch.Service)
+	c.opts.Log("认证成功: scheme=%s service=%s", ch.Scheme, ch.Service)
 	return nil
 }
 
@@ -264,7 +272,7 @@ func (c *Client) fetchToken(ctx context.Context, ch *challenge) (string, time.Ti
 	q.Set("scope", scope)
 	u.RawQuery = q.Encode()
 
-	c.opts.Verbose("获取令牌: %s", u.Redacted())
+	c.opts.Log("正在获取访问令牌: %s", u.Redacted())
 
 	var token string
 	var expiry time.Time

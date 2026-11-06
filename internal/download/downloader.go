@@ -289,6 +289,7 @@ func (d *Downloader) Download(ctx context.Context, blobs []Blob) error {
 			if err := d.runTasks(ctx, tasks); err != nil {
 				return err
 			}
+			d.opts.UI.Infof("分片下载完成，正在合并并校验层数据...")
 		}
 
 		bad, err := d.assembleAndVerify()
@@ -561,7 +562,7 @@ func (d *Downloader) downloadPart(ctx context.Context, t task) error {
 		if wait > 30*time.Second {
 			wait = 30 * time.Second
 		}
-		d.opts.UI.Verbosef("层 %s 分片 %d-%d 下载失败: %v（%s 后重试 %d/%d）",
+		d.opts.UI.Printf("层 %s 分片 %d-%d 下载失败: %v（%s 后重试 %d/%d）",
 			shortDigest(t.blob.blob.Digest), t.part.start, t.part.end, err, wait, attempt+1, d.opts.Retries)
 		select {
 		case <-ctx.Done():
@@ -864,6 +865,7 @@ func (d *Downloader) assembleAndVerify() ([]*blobState, error) {
 		st.verified = true
 		d.state.Verified[st.blob.Digest] = fi.Size()
 		d.opts.Progress.MarkLayerDone(st.progressIdx)
+		d.opts.UI.Infof("层 %s 校验通过（%s）", shortDigest(st.blob.Digest), ui.FormatBytes(fi.Size()))
 		_ = os.RemoveAll(filepath.Join(d.opts.CacheDir, "parts", mustHex(st.blob.Digest)))
 	}
 	return bad, nil
