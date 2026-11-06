@@ -67,7 +67,7 @@ func (c *Client) retry(ctx context.Context, fn func() error) error {
 		if !retryable(last) || i == attempts-1 {
 			return last
 		}
-		wait := time.Duration(1<<i) * 500 * time.Millisecond
+		wait := time.Duration(1<<min(i, 5)) * 500 * time.Millisecond
 		if wait > 10*time.Second {
 			wait = 10 * time.Second
 		}

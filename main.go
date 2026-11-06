@@ -64,7 +64,11 @@ type cliOptions struct {
 }
 
 func main() {
-	os.Exit(realMain())
+	// Windows 下切换控制台到 UTF-8，避免中文乱码；退出时恢复原代码页。
+	restore := ui.EnableUTF8Console()
+	code := realMain()
+	restore()
+	os.Exit(code)
 }
 
 func realMain() int {
@@ -88,7 +92,7 @@ func realMain() int {
 	fs.StringVar(&opts.tagName, "tag-name", "", "写入 tar 包的镜像名，默认自动生成")
 	fs.StringVar(&opts.registryMirror, "registry", "", "镜像站地址，例如 docker.1ms.run")
 	fs.StringVar(&opts.registryMirror, "r", "", "镜像站地址（-registry 的简写）")
-	fs.StringVar(&opts.proxy, "proxy", "", "代理地址：http://、https://、socks5://")
+	fs.StringVar(&opts.proxy, "proxy", "", "代理地址：http://、https://、socks5://、socks5h://，none 表示禁用代理")
 	fs.StringVar(&opts.dns, "dns", "", "自定义 DNS 服务器，逗号分隔（如 223.5.5.5,8.8.8.8），默认自动检测")
 	fs.BoolVar(&opts.insecure, "insecure", false, "跳过 TLS 证书校验")
 	fs.BoolVar(&opts.plainHTTP, "plain-http", false, "使用 HTTP 访问仓库（本地仓库调试用）")

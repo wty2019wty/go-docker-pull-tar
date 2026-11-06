@@ -19,7 +19,7 @@ import (
 
 // Options 是构建 HTTP 客户端的参数。
 type Options struct {
-	// Proxy 支持 http、https、socks5、socks5h，留空则读取环境变量。
+	// Proxy 支持 http、https、socks5/socks5h/socks，none/direct 表示禁用代理，留空则读取环境变量。
 	Proxy string
 	// Insecure 跳过 TLS 证书校验。
 	Insecure bool
@@ -114,7 +114,7 @@ func New(opts Options) (*http.Client, error) {
 			tr.Proxy = nil
 			opts.Verbose("不使用代理")
 		default:
-			return nil, fmt.Errorf("不支持的代理协议 %q（支持 http/https/socks5）", proxyURL.Scheme)
+			return nil, fmt.Errorf("不支持的代理协议 %q（支持 http/https/socks5/socks5h/none）", proxyURL.Scheme)
 		}
 	} else if hasProxyEnv() {
 		opts.Verbose("检测到系统代理环境变量，将自动使用")
