@@ -14,8 +14,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/topcss/go-docker-pull-tar/internal/registry"
-	"github.com/topcss/go-docker-pull-tar/internal/ui"
+	"github.com/wty2019wty/go-docker-pull-tar/internal/registry"
+	"github.com/wty2019wty/go-docker-pull-tar/internal/ui"
 )
 
 type rangeRecorder struct {

@@ -18,8 +18,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/topcss/go-docker-pull-tar/internal/registry"
-	"github.com/topcss/go-docker-pull-tar/internal/ui"
+	"github.com/wty2019wty/go-docker-pull-tar/internal/registry"
+	"github.com/wty2019wty/go-docker-pull-tar/internal/ui"
 )
 
 // Blob 描述一个需要下载的对象。

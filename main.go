@@ -20,12 +20,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/topcss/go-docker-pull-tar/internal/download"
-	"github.com/topcss/go-docker-pull-tar/internal/reference"
-	"github.com/topcss/go-docker-pull-tar/internal/registry"
-	"github.com/topcss/go-docker-pull-tar/internal/save"
-	"github.com/topcss/go-docker-pull-tar/internal/transport"
-	"github.com/topcss/go-docker-pull-tar/internal/ui"
+	"github.com/wty2019wty/go-docker-pull-tar/internal/download"
+	"github.com/wty2019wty/go-docker-pull-tar/internal/reference"
+	"github.com/wty2019wty/go-docker-pull-tar/internal/registry"
+	"github.com/wty2019wty/go-docker-pull-tar/internal/save"
+	"github.com/wty2019wty/go-docker-pull-tar/internal/transport"
+	"github.com/wty2019wty/go-docker-pull-tar/internal/ui"
 )
 
 // Version 是程序版本号。

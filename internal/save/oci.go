@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/topcss/go-docker-pull-tar/internal/registry"
+	"github.com/wty2019wty/go-docker-pull-tar/internal/registry"
 )
 
 // OCIOptions 是生成 OCI 镜像布局的参数。

@@ -14,7 +14,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/topcss/go-docker-pull-tar/internal/registry"
+	"github.com/wty2019wty/go-docker-pull-tar/internal/registry"
 )
 
 func makeTestLayer(t *testing.T) (layerTar, blob []byte, diffID, blobDigest string) {

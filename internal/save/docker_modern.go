@@ -13,7 +13,7 @@ import (
 	"path"
 	"path/filepath"
 
-	"github.com/topcss/go-docker-pull-tar/internal/registry"
+	"github.com/wty2019wty/go-docker-pull-tar/internal/registry"
 )
 
 // DockerModernOptions 是生成新版 docker save 格式（OCI 布局 + manifest.json）的参数。

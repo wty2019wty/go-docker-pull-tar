@@ -321,6 +321,11 @@ A：默认的 `docker` 格式会原样保留压缩层，需要 Docker 27+ 才能
 **Q：按 digest 拉取后镜像名是什么？**
 A：默认使用 `仓库:latest` 作为 `RepoTags`，可用 `-tag-name repo:tag` 覆盖。
 
+## 致谢
+
+本项目在功能设计上参考了 [topcss/docker-pull-tar](https://github.com/topcss/docker-pull-tar)，
+Go 版本为独立重写实现。
+
 ## 许可证
 
 MIT License，详见 [LICENSE](LICENSE)。

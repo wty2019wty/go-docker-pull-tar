@@ -18,7 +18,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/topcss/go-docker-pull-tar/internal/ui"
+	"github.com/wty2019wty/go-docker-pull-tar/internal/ui"
 )
 
 func sha256Digest(data []byte) string {
