@@ -9,9 +9,10 @@ gdockerpull.exe
 *.out
 dist/
 
-# 下载缓存
+# 下载及缓存
 .*.cache/
 .pull-cache/
+*.tar
 
 # 编辑器
 .idea/
