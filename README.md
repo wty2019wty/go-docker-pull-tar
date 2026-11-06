@@ -59,7 +59,6 @@ go install github.com/wty2019wty/go-docker-pull-tar@latest
 
 ### 方式三：源码编译
 
-要求 Go 1.22 及以上。
 
 ```bash
 cd go-docker-pull-tar
