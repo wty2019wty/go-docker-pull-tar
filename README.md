@@ -65,12 +65,6 @@ cd go-docker-pull-tar
 go build -trimpath -ldflags "-s -w -X main.Version=$(git describe --tags --always)" -o gdockerpull
 ```
 
-Windows 下会得到 `gdockerpull.exe`，也可以直接运行：
-
-```bat
-build.bat
-```
-
 > 版本号通过 `-X main.Version=...` 在构建时注入；不注入时默认显示 `dev`。
 > 从 Releases 下载的二进制版本号会自动与发布 tag 保持一致。
 
@@ -124,6 +118,7 @@ docker load -i ./library_nginx_latest_linux_amd64.tar
 | `-tag-name` | 写入 tar 包的镜像名 | 自动生成 |
 | `-registry, -r` | 镜像站地址，如 `docker.1ms.run` | 空 |
 | `-proxy` | 代理地址，支持 http/https/socks5 | 环境变量 |
+| `-dns` | 自定义 DNS 服务器，逗号分隔 | 自动检测（见下文 DNS 章节） |
 | `-insecure` | 跳过 TLS 证书校验 | `false` |
 | `-plain-http` | 使用 HTTP 访问仓库 | `false` |
 | `-workers, -w` | 并发下载连接数 | `8` |
@@ -197,6 +192,36 @@ gdockerpull -i nginx:latest -proxy socks5://user:pass@127.0.0.1:1080
 ```
 
 未传 `-proxy` 时，自动使用 `HTTPS_PROXY` / `HTTP_PROXY`（以及小写形式）环境变量。
+
+## DNS 解析
+
+默认使用系统解析器（读取 `/etc/resolv.conf`）。在缺少系统 DNS 配置的环境——典型是 **Android Termux** 上运行 Linux 版二进制——工具会自动回退到公共 DNS（阿里、腾讯 DNSPod、114、Google），无需任何配置。
+
+也可以手动指定 DNS 服务器：
+
+```bash
+# 命令行
+gdockerpull -i nginx:latest -dns 223.5.5.5,8.8.8.8
+
+# 或环境变量
+export GDOCKER_DNS="223.5.5.5,8.8.8.8"
+gdockerpull -i nginx:latest
+```
+
+> 提示：使用 `-proxy` 时代理会代为解析域名，一般无需关心 DNS 设置。
+
+## TLS 证书
+
+默认使用系统 CA 信任库校验 HTTPS 证书。在系统信任库缺失的环境——典型是 **Android Termux**（`ca-certificates` 装在 `$PREFIX/etc/tls/cert.pem`，不在 Go 的默认搜索路径里）——工具会自动加载 Termux 的 CA 证书，无需任何配置。
+
+也可以手动指定证书文件（优先级最高，指定后不再自动加载）：
+
+```bash
+export SSL_CERT_FILE=$PREFIX/etc/tls/cert.pem
+export SSL_CERT_DIR=/path/to/certs
+```
+
+自签名/内部仓库可加 `-insecure` 跳过校验。
 
 ## 镜像站
 
@@ -357,6 +382,16 @@ A：默认的 `docker` 格式会原样保留压缩层，需要 Docker 27+ 才能
 
 **Q：按 digest 拉取后镜像名是什么？**
 A：默认使用 `仓库:latest` 作为 `RepoTags`，可用 `-tag-name repo:tag` 覆盖。
+
+**Q：在 Android Termux 上报 `lookup ... on [::1]:53: connection refused`？**
+A：这是 DNS 解析失败——Linux 版二进制在 Termux 上读不到 `/etc/resolv.conf`，旧版本会默认向本机 53 端口查询。新版本会自动回退公共 DNS；若仍失败，可用 `-dns 223.5.5.5` 手动指定，或设置 `GDOCKER_DNS` 环境变量。在手机上使用时，可用 PC 交叉编译：
+
+```bash
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o gdockerpull .
+```
+
+**Q：报 `x509: certificate signed by unknown authority`（同样常见于 Termux）？**
+A：这是找不到 CA 根证书——Termux 的 `ca-certificates` 包装在 `$PREFIX/etc/tls/cert.pem`，不在 Go 的默认搜索路径里。新版本会自动加载该证书；也可手动 `export SSL_CERT_FILE=$PREFIX/etc/tls/cert.pem`（需先 `pkg install ca-certificates`），内部自签证书仓库用 `-insecure`。
 
 ## 发布流程
 
