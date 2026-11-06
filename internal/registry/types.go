@@ -98,11 +98,3 @@ func ParseManifest(data []byte) (*Manifest, error) {
 	}
 	return &m, nil
 }
-
-// IsLayerGzip 判断层是否为 gzip 压缩。
-func IsLayerGzip(mediaType string) bool {
-	return strings.Contains(mediaType, "gzip") ||
-		mediaType == "application/vnd.docker.image.rootfs.diff.tar.gzip" ||
-		mediaType == "application/vnd.docker.image.rootfs.foreign.diff.tar.gzip" ||
-		mediaType == "application/vnd.oci.image.layer.v1.tar+gzip"
-}

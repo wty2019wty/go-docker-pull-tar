@@ -57,7 +57,7 @@ func WriteOCI(ctx context.Context, opts OCIOptions) error {
 	if opts.TempDir == "" {
 		opts.TempDir = os.TempDir()
 	}
-	if err := os.MkdirAll(opts.TempDir, 0o755); err != nil {
+	if err := os.MkdirAll(opts.TempDir, 0o700); err != nil {
 		return err
 	}
 
@@ -76,12 +76,12 @@ func WriteOCI(ctx context.Context, opts OCIOptions) error {
 				_ = os.RemoveAll(cleanupDir)
 			}
 		}()
-	} else if err := os.MkdirAll(layoutDir, 0o755); err != nil {
+	} else if err := os.MkdirAll(layoutDir, 0o700); err != nil {
 		return err
 	}
 
 	blobsDir := filepath.Join(layoutDir, "blobs", "sha256")
-	if err := os.MkdirAll(blobsDir, 0o755); err != nil {
+	if err := os.MkdirAll(blobsDir, 0o700); err != nil {
 		return err
 	}
 
@@ -140,11 +140,11 @@ func WriteOCI(ctx context.Context, opts OCIOptions) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(layoutDir, "index.json"), indexJSON, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(layoutDir, "index.json"), indexJSON, 0o600); err != nil {
 		return err
 	}
 	layoutJSON, _ := json.Marshal(ociLayout{ImageLayoutVersion: "1.0.0"})
-	if err := os.WriteFile(filepath.Join(layoutDir, "oci-layout"), layoutJSON, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(layoutDir, "oci-layout"), layoutJSON, 0o600); err != nil {
 		return err
 	}
 
@@ -172,7 +172,7 @@ func writeBytesVerified(ctx context.Context, dir, digest string, data []byte) er
 	dst := filepath.Join(dir, h)
 	// 先写临时文件再重命名，避免中断留下截断文件被后续复用。
 	tmp := dst + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, dst)
@@ -180,12 +180,12 @@ func writeBytesVerified(ctx context.Context, dir, digest string, data []byte) er
 
 // tarDir 将目录打包为 tar，路径保持相对形式。
 func tarDir(ctx context.Context, srcDir, output string) error {
-	if err := os.MkdirAll(filepath.Dir(output), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(output), 0o700); err != nil {
 		return err
 	}
 	tmp := output + ".tmp"
 	_ = os.Remove(tmp)
-	f, err := os.Create(tmp)
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}

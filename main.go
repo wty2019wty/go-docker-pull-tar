@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/wty2019wty/go-docker-pull-tar/internal/download"
@@ -191,11 +192,10 @@ func realMain() int {
 		opts.image = strings.TrimSpace(line)
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	listed, err := run(ctx, opts, u)
-	if err != nil {
+	if err := run(ctx, opts, u); err != nil {
 		if ctx.Err() != nil {
 			u.Errorf("\n警告: 已中断，已下载的分片保留在缓存目录中；重新运行相同命令即可断点续传。")
 			return 130
@@ -203,16 +203,13 @@ func realMain() int {
 		u.Errorf("错误: %v", err)
 		return 1
 	}
-	if listed {
-		return 0
-	}
 	return 0
 }
 
-func run(ctx context.Context, opts cliOptions, u *ui.UI) (bool, error) {
+func run(ctx context.Context, opts cliOptions, u *ui.UI) error {
 	ref, err := reference.Parse(opts.image)
 	if err != nil {
-		return false, err
+		return err
 	}
 	if opts.registryMirror != "" {
 		lower := strings.ToLower(opts.registryMirror)
@@ -224,7 +221,7 @@ func run(ctx context.Context, opts cliOptions, u *ui.UI) (bool, error) {
 
 	creds, err := resolveCredentials(opts, ref, u)
 	if err != nil {
-		return false, err
+		return err
 	}
 
 	httpClient, err := transport.New(transport.Options{
@@ -235,7 +232,7 @@ func run(ctx context.Context, opts cliOptions, u *ui.UI) (bool, error) {
 		Verbose:  u.Verbosef,
 	})
 	if err != nil {
-		return false, err
+		return err
 	}
 
 	rc := registry.New(registry.Options{
@@ -260,20 +257,20 @@ func run(ctx context.Context, opts cliOptions, u *ui.UI) (bool, error) {
 	manifestBytes, mediaType, manifestDigest, err := rc.FetchManifest(ctx, ref.Reference())
 	stopWatch()
 	if err != nil {
-		return false, err
+		return err
 	}
 	u.Infof("已获取清单: %s（%s，耗时 %s）", mediaType, ui.FormatBytes(int64(len(manifestBytes))), time.Since(start).Round(time.Millisecond))
 	if ref.Digest != "" && manifestDigest != ref.Digest {
-		return false, fmt.Errorf("清单摘要不匹配: 期望 %s，实际 %s", ref.Digest, manifestDigest)
+		return fmt.Errorf("清单摘要不匹配: 期望 %s，实际 %s", ref.Digest, manifestDigest)
 	}
 	manifest, err := registry.ParseManifest(manifestBytes)
 	if err != nil {
-		return false, err
+		return err
 	}
 
 	want, platformExplicit, err := resolvePlatform(opts)
 	if err != nil {
-		return false, err
+		return err
 	}
 
 	var platform registry.Platform
@@ -283,7 +280,7 @@ func run(ctx context.Context, opts cliOptions, u *ui.UI) (bool, error) {
 			len(registry.Platforms(manifest.Manifests)), strings.Join(registry.Platforms(manifest.Manifests), ", "))
 		if opts.listPlatforms {
 			printPlatforms(u, manifest.Manifests)
-			return true, nil
+			return nil
 		}
 		desc, ok := registry.SelectManifest(manifest.Manifests, want)
 		if !ok {
@@ -291,13 +288,13 @@ func run(ctx context.Context, opts cliOptions, u *ui.UI) (bool, error) {
 			if !platformExplicit && stdinIsTerminal() {
 				chosen, perr := promptPlatform(u, available, want)
 				if perr != nil {
-					return false, perr
+					return perr
 				}
 				want = chosen
 				desc, ok = registry.SelectManifest(manifest.Manifests, want)
 			}
 			if !ok {
-				return false, fmt.Errorf("镜像 %s 不支持平台 %s\n可用平台: %s\n可使用 -platform/-arch 指定架构，或添加 -list-platforms 查看",
+				return fmt.Errorf("镜像 %s 不支持平台 %s\n可用平台: %s\n可使用 -platform/-arch 指定架构，或添加 -list-platforms 查看",
 					ref.Name(), want.String(), strings.Join(available, ", "))
 			}
 		}
@@ -309,15 +306,15 @@ func run(ctx context.Context, opts cliOptions, u *ui.UI) (bool, error) {
 		childBytes, childMedia, err := rc.FetchManifestDigest(ctx, desc.Digest)
 		stopWatch()
 		if err != nil {
-			return false, err
+			return err
 		}
 		child, err := registry.ParseManifest(childBytes)
 		if err != nil {
-			return false, err
+			return err
 		}
 		u.Infof("已获取平台清单: %d 个层，%s（耗时 %s）", len(child.Layers), ui.FormatBytes(totalLayerSize(child.Layers)), time.Since(start).Round(time.Millisecond))
 		if child.IsIndex() {
-			return false, fmt.Errorf("暂不支持嵌套的多平台索引")
+			return fmt.Errorf("暂不支持嵌套的多平台索引")
 		}
 		manifest = child
 		manifestBytes = childBytes
@@ -330,10 +327,10 @@ func run(ctx context.Context, opts cliOptions, u *ui.UI) (bool, error) {
 	}
 
 	if len(manifest.Layers) == 0 {
-		return false, fmt.Errorf("清单中没有任何层")
+		return fmt.Errorf("清单中没有任何层")
 	}
 	if manifest.Config.Digest == "" {
-		return false, fmt.Errorf("清单中缺少配置对象")
+		return fmt.Errorf("清单中缺少配置对象")
 	}
 
 	u.Infof("正在获取镜像配置: %s", manifest.Config.Digest)
@@ -342,12 +339,12 @@ func run(ctx context.Context, opts cliOptions, u *ui.UI) (bool, error) {
 	configBytes, err := rc.FetchBlob(ctx, manifest.Config.Digest, 64<<20)
 	stopWatch()
 	if err != nil {
-		return false, err
+		return err
 	}
 	u.Infof("已获取镜像配置: %s（耗时 %s）", ui.FormatBytes(int64(len(configBytes))), time.Since(start).Round(time.Millisecond))
 	var imageConfig registry.ImageConfig
 	if err := json.Unmarshal(configBytes, &imageConfig); err != nil {
-		return false, fmt.Errorf("解析镜像配置失败: %w", err)
+		return fmt.Errorf("解析镜像配置失败: %w", err)
 	}
 
 	if platform.OS == "" {
@@ -363,7 +360,7 @@ func run(ctx context.Context, opts cliOptions, u *ui.UI) (bool, error) {
 
 	if opts.listPlatforms {
 		u.Printf("该镜像不是多平台索引，实际平台: %s", platform.String())
-		return true, nil
+		return nil
 	}
 
 	if platformExplicit && !wasIndex && !registry.Match(want, platform) {
@@ -377,7 +374,7 @@ func run(ctx context.Context, opts cliOptions, u *ui.UI) (bool, error) {
 	base := safeBaseName(ref, platform)
 	outputPath, err := resolveOutput(opts.output, opts.format, base)
 	if err != nil {
-		return false, err
+		return err
 	}
 	cacheDir := opts.cacheDir
 	if cacheDir == "" {
@@ -393,7 +390,7 @@ func run(ctx context.Context, opts cliOptions, u *ui.UI) (bool, error) {
 	u.Infof("缓存: %s", cacheDir)
 
 	err = pullAndSave(ctx, opts, u, ref, rc, httpClient, manifest, manifestBytes, mediaType, manifestDigest, configBytes, imageConfig, platform, outputPath, cacheDir)
-	return false, err
+	return err
 }
 
 func pullAndSave(
@@ -638,7 +635,7 @@ func resolveOutput(out, format, base string) (string, error) {
 	if strings.HasSuffix(strings.ToLower(out), ".tar") {
 		return out, nil
 	}
-	if err := os.MkdirAll(out, 0o755); err != nil {
+	if err := os.MkdirAll(out, 0o700); err != nil {
 		return "", fmt.Errorf("创建输出目录失败: %w", err)
 	}
 	if format == "oci" {
@@ -787,11 +784,11 @@ func readAllStdin() (string, error) {
 }
 
 func writeFileAtomic(path string, data []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)

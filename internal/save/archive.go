@@ -168,7 +168,7 @@ func unpackLayer(ctx context.Context, src LayerSource, dst string, onBytes byteH
 		return "", 0, fmt.Errorf("该镜像层使用 zstd 压缩，docker-legacy 格式无法解压；请改用 -format docker 或 -format oci")
 	}
 
-	out, err := os.Create(dst)
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return "", 0, err
 	}
@@ -220,7 +220,7 @@ func copyFile(ctx context.Context, src, dst, expectedDigest string, onBytes byte
 	defer in.Close()
 
 	tmp := dst + ".tmp"
-	out, err := os.Create(tmp)
+	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}

@@ -6,9 +6,11 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -102,6 +104,74 @@ func TestFetchManifestBearerAuth(t *testing.T) {
 // srvURL 从请求中恢复测试服务器地址。
 func srvURL(r *http.Request) string {
 	return "http://" + r.Host
+}
+
+// TestBearerTokenRevokedRefreshesImmediately 验证缓存令牌被服务端吊销后，
+// 首个 401 即强制刷新令牌，不会重复使用已失效的令牌多跑一趟。
+func TestBearerTokenRevokedRefreshesImmediately(t *testing.T) {
+	var mu sync.Mutex
+	tokenCount := 0
+	current := ""
+	manifestHits := 0
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/token":
+			mu.Lock()
+			tokenCount++
+			current = fmt.Sprintf("token-%d", tokenCount)
+			tok := current
+			mu.Unlock()
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"token": tok, "expires_in": 300})
+		default:
+			mu.Lock()
+			manifestHits++
+			valid := r.Header.Get("Authorization") == "Bearer "+current
+			mu.Unlock()
+			if !valid {
+				w.Header().Set("WWW-Authenticate",
+					`Bearer realm="`+srvURL(r)+`/token",service="test-service"`)
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			w.Header().Set("Content-Type", MediaTypeOCIManifest)
+			_, _ = w.Write([]byte(testManifest))
+		}
+	}))
+	defer srv.Close()
+
+	c := New(Options{
+		Registry:    strings.TrimPrefix(srv.URL, "http://"),
+		Repository:  "test/repo",
+		Credentials: Credentials{Username: "user", Password: "pass"},
+		HTTPClient:  srv.Client(),
+		PlainHTTP:   true,
+	})
+
+	// 第一次拉取成功，令牌 token-1 被缓存。
+	if _, _, _, err := c.FetchManifest(context.Background(), "latest"); err != nil {
+		t.Fatalf("FetchManifest() error = %v", err)
+	}
+
+	// 模拟服务端吊销 token-1。
+	mu.Lock()
+	current = "revoked"
+	hitsBefore := manifestHits
+	mu.Unlock()
+
+	if _, _, _, err := c.FetchManifest(context.Background(), "latest"); err != nil {
+		t.Fatalf("FetchManifest() error = %v", err)
+	}
+	mu.Lock()
+	extraHits := manifestHits - hitsBefore
+	tokens := tokenCount
+	mu.Unlock()
+	if extraHits != 2 {
+		t.Fatalf("吊销后清单请求次数 = %d, want 2（一次被拒 + 一次换新令牌成功）", extraHits)
+	}
+	if tokens != 2 {
+		t.Fatalf("令牌获取次数 = %d, want 2", tokens)
+	}
 }
 
 func TestFetchBlobVerifiesDigest(t *testing.T) {

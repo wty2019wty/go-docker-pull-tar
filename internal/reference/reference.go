@@ -165,15 +165,6 @@ func (r *Reference) Name() string {
 	return repo + ":" + tag
 }
 
-// RepositoryName 返回不带标签的镜像名。
-func (r *Reference) RepositoryName() string {
-	repo := r.Repository
-	if r.OriginalRegistry == DockerHub {
-		return strings.TrimPrefix(repo, "library/")
-	}
-	return r.OriginalRegistry + "/" + repo
-}
-
 // TagName 返回用于打标签的 tag（使用摘要拉取时默认 latest）。
 func (r *Reference) TagName() string {
 	if r.Tag == "" {

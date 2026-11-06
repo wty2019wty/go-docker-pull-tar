@@ -107,7 +107,7 @@ func New(opts Options) (*Downloader, error) {
 	}
 	d := &Downloader{opts: opts}
 	for _, dir := range []string{"", "objects", "parts", "tmp"} {
-		if err := os.MkdirAll(filepath.Join(opts.CacheDir, dir), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(opts.CacheDir, dir), 0o700); err != nil {
 			return nil, err
 		}
 	}
@@ -144,15 +144,6 @@ func ObjectPath(cacheDir, digest string) (string, error) {
 		return "", err
 	}
 	return filepath.Join(cacheDir, "objects", h+".blob"), nil
-}
-
-// ManifestPath 返回清单在缓存中的路径。
-func ManifestPath(cacheDir, digest string) (string, error) {
-	h, err := HexDigest(digest)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(cacheDir, "objects", h+".manifest"), nil
 }
 
 func (d *Downloader) loadState() error {
@@ -198,7 +189,7 @@ func (d *Downloader) wipe() {
 	_ = os.RemoveAll(filepath.Join(d.opts.CacheDir, "objects"))
 	_ = os.RemoveAll(filepath.Join(d.opts.CacheDir, "tmp"))
 	for _, dir := range []string{"", "objects", "parts", "tmp"} {
-		_ = os.MkdirAll(filepath.Join(d.opts.CacheDir, dir), 0o755)
+		_ = os.MkdirAll(filepath.Join(d.opts.CacheDir, dir), 0o700)
 	}
 }
 
@@ -214,19 +205,10 @@ func (d *Downloader) saveState() error {
 	}
 	path := filepath.Join(d.opts.CacheDir, "state.json")
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)
-}
-
-// ObjectPath 返回已校验 Blob 的本地路径；不存在时返回空字符串。
-func (d *Downloader) ObjectPath(digest string) string {
-	p, err := ObjectPath(d.opts.CacheDir, digest)
-	if err != nil {
-		return ""
-	}
-	return p
 }
 
 // Download 下载全部层，完成校验后返回。
@@ -433,7 +415,7 @@ func (d *Downloader) makeParts(blob *Blob, rangeSupported bool) []*part {
 		return nil
 	}
 	dir := filepath.Join(d.opts.CacheDir, "parts", hexDigest)
-	_ = os.MkdirAll(dir, 0o755)
+	_ = os.MkdirAll(dir, 0o700)
 
 	if blob.Size <= 0 {
 		return []*part{{start: 0, end: -1, path: filepath.Join(dir, "single")}}
@@ -700,7 +682,7 @@ func (d *Downloader) tryPart(ctx context.Context, t task) error {
 	if offset == 0 {
 		flags |= os.O_TRUNC
 	}
-	f, err := os.OpenFile(p.path, flags, 0o644)
+	f, err := os.OpenFile(p.path, flags, 0o600)
 	if err != nil {
 		return err
 	}
@@ -759,7 +741,7 @@ func writeDone(p *part) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(p.path+".done", []byte(strconv.FormatInt(fi.Size(), 10)), 0o644)
+	return os.WriteFile(p.path+".done", []byte(strconv.FormatInt(fi.Size(), 10)), 0o600)
 }
 
 // openPart 优先从 Registry 下载，失败时尝试 foreign layer 提供的外部地址。
@@ -920,7 +902,7 @@ func (d *Downloader) assemble(st *blobState, objectPath string) error {
 
 	tmp := objectPath + ".tmp"
 	_ = os.Remove(tmp)
-	out, err := os.Create(tmp)
+	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
@@ -978,7 +960,7 @@ func (d *Downloader) resetBlob(st *blobState) {
 	st.verified = false
 	d.opts.Progress.ResetLayer(st.progressIdx)
 	_ = os.RemoveAll(filepath.Join(d.opts.CacheDir, "parts", mustHex(st.blob.Digest)))
-	_ = os.MkdirAll(filepath.Join(d.opts.CacheDir, "parts", mustHex(st.blob.Digest)), 0o755)
+	_ = os.MkdirAll(filepath.Join(d.opts.CacheDir, "parts", mustHex(st.blob.Digest)), 0o700)
 	if p, err := ObjectPath(d.opts.CacheDir, st.blob.Digest); err == nil {
 		_ = os.Remove(p)
 	}
@@ -1008,11 +990,4 @@ func mustHex(digest string) string {
 		return "invalid"
 	}
 	return h
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

@@ -24,12 +24,6 @@ func New(quiet, verbose bool) *UI {
 	return &UI{quiet: quiet, verbose: verbose}
 }
 
-// Quiet 返回是否处于静默模式。
-func (u *UI) Quiet() bool { return u.quiet }
-
-// Verbose 返回是否开启详细日志。
-func (u *UI) Verbose() bool { return u.verbose }
-
 // Infof 输出普通信息（静默模式下不输出）。
 func (u *UI) Infof(format string, args ...interface{}) {
 	if u.quiet {
@@ -103,11 +97,12 @@ func (u *UI) Progress(line string) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	pad := ""
-	if len(line) < u.lastLen {
-		pad = strings.Repeat(" ", u.lastLen-len(line))
+	w := displayWidth(line)
+	if w < u.lastLen {
+		pad = strings.Repeat(" ", u.lastLen-w)
 	}
 	fmt.Fprintf(os.Stdout, "\r%s%s", line, pad)
-	u.lastLen = len(line)
+	u.lastLen = w
 	u.active = true
 }
 
@@ -128,4 +123,30 @@ func (u *UI) clearLocked() {
 	fmt.Fprintf(os.Stdout, "\r%s\r", strings.Repeat(" ", u.lastLen))
 	u.active = false
 	u.lastLen = 0
+}
+
+// displayWidth 估算字符串在终端中的显示宽度（东亚宽字符按 2 列计），
+// 用于进度行的覆盖填充与清除。
+func displayWidth(s string) int {
+	w := 0
+	for _, r := range s {
+		w += runeWidth(r)
+	}
+	return w
+}
+
+// runeWidth 返回单个字符占用的终端列宽。
+func runeWidth(r rune) int {
+	switch {
+	case r >= 0x1100 && r <= 0x115F, // 韩文字母
+		r >= 0x2E80 && r <= 0xA4CF, // CJK 部首、假名、汉字
+		r >= 0xAC00 && r <= 0xD7A3, // 韩文音节
+		r >= 0xF900 && r <= 0xFAFF, // CJK 兼容汉字
+		r >= 0xFE30 && r <= 0xFE6F, // CJK 兼容符号
+		r >= 0xFF00 && r <= 0xFF60, // 全角字符
+		r >= 0xFFE0 && r <= 0xFFE6,
+		r >= 0x20000: // CJK 扩展
+		return 2
+	}
+	return 1
 }

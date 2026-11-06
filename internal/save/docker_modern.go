@@ -57,7 +57,7 @@ func WriteDockerModern(ctx context.Context, opts DockerModernOptions) error {
 	if opts.TempDir == "" {
 		opts.TempDir = os.TempDir()
 	}
-	if err := os.MkdirAll(filepath.Dir(opts.OutputPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(opts.OutputPath), 0o700); err != nil {
 		return err
 	}
 
@@ -73,7 +73,7 @@ func WriteDockerModern(ctx context.Context, opts DockerModernOptions) error {
 
 	tmpTar := opts.OutputPath + ".tmp"
 	_ = os.Remove(tmpTar)
-	f, err := os.Create(tmpTar)
+	f, err := os.OpenFile(tmpTar, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}

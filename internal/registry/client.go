@@ -188,7 +188,12 @@ func (c *Client) do(req *http.Request) (*http.Response, error) {
 
 		c.opts.Log("收到认证挑战: %s realm=%q service=%q", ch.Scheme, ch.Realm, ch.Service)
 
-		if err := c.refreshAuth(req.Context(), ch, attempt > 0); err != nil {
+		// 若刚被拒绝的正是当前缓存的认证头，说明凭据已被吊销，强制刷新；
+		// 反之可能已有并发请求完成刷新，直接复用新凭据即可。
+		c.mu.RLock()
+		force := header != "" && header == c.authHeader
+		c.mu.RUnlock()
+		if err := c.refreshAuth(req.Context(), ch, force); err != nil {
 			return nil, err
 		}
 	}

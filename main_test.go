@@ -148,7 +148,7 @@ func TestRunEndToEndWithBasicAuth(t *testing.T) {
 		cacheDir:     filepath.Join(dir, "cache"),
 		quiet:        true,
 	}
-	if _, err := run(context.Background(), opts, ui.New(true, false)); err != nil {
+	if err := run(context.Background(), opts, ui.New(true, false)); err != nil {
 		t.Fatalf("run() error = %v", err)
 	}
 
